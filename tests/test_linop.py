@@ -33,4 +33,4 @@ class TestLinOpMatrix(unittest.TestCase):
         msg="Input size of LinOpMatrix inconsistent with matrix")
 
 if __name__ == '__main__':
-    unitest.main()
+    unittest.main()
