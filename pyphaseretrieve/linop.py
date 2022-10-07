@@ -1,9 +1,18 @@
+from abc import abstractmethod
 import numpy as np
 
 ## Base class
 
 class BaseLinOp:
     def __init__(self):
+        pass
+
+    @abstractmethod
+    def apply(self, x):
+        pass
+
+    @abstractmethod
+    def applyAdjoint(self, x):
         pass
 
     def __add__(self, other):
@@ -110,19 +119,6 @@ class LinOpId(BaseLinOp):
     
     def applyAdjoint(self, x):
         return x
-    
-class LinOpConstant(BaseLinOp):
-    """Warning: This is not a LinOp. Just here for convenience. """
-    def __init__(self, value=1):
-        self.value = value
-        self.in_size = -1
-        self.out_size = -1
-        
-    def apply(self, x):
-        return self.value
-    
-    def applyAdjoint(self, x):
-        return 0
     
 class LinOpFlip(BaseLinOp):
     def __init__(self):
