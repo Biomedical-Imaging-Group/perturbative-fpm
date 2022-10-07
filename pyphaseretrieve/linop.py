@@ -48,6 +48,9 @@ class BaseLinOp:
         else:
             raise NameError('The matrix multiplication operator can only be performed between two LinOp objects.')
 
+    def T(self):
+        return LinOpTranspose(self)
+
 ## Default classes
 
 class LinOpMatrix(BaseLinOp):
@@ -74,20 +77,6 @@ class LinOpMul(BaseLinOp):
 
     def applyAdjoint(self, x):
         return self.coefs.conj() * x
-    
-# class LinOpConv(BaseLinOp):
-#     """Convolution operator, computed using FFT"""
-#     def __init__(self, Ffilter, epsilon=1e-5):
-#         self.Ffilter = Ffilter  # Filter in the Fourier domain
-#         self.epsilon = epsilon  # regularization constant for deconvolution
-#         self.in_size = Ffilter.shape[0]
-#         self.out_size = Ffilter.shape[0]
-
-#     def apply(self, x):
-#         return np.fft.ifft2(self.Ffilter * np.fft.fft2(x))
-
-#     def applyAdjoint(self, x):
-#         return np.fft.fft2(1 / (self.Ffilter+self.epsilon) * np.fft.ifft2(x))
 
 class LinOpFFT(BaseLinOp):
     def __init__(self):
@@ -100,17 +89,6 @@ class LinOpFFT(BaseLinOp):
     def applyAdjoint(self, x):
         return np.fft.ifft(x, norm="ortho")
 
-class LinOpIFFT(BaseLinOp):
-    def __init__(self):
-        self.in_size = -1
-        self.out_size = -1
-
-    def apply(self, x):
-        return np.fft.ifft(x, norm="ortho")
-
-    def applyAdjoint(self, x):
-        return np.fft.fft(x, norm="ortho")
-
 class LinOpFFT2(BaseLinOp):
     def __init__(self):
         self.in_size = -1
@@ -122,17 +100,6 @@ class LinOpFFT2(BaseLinOp):
     def applyAdjoint(self, x):
         return np.fft.ifft2(x, norm="ortho")
 
-class LinOpIFFT2(BaseLinOp):
-    def __init__(self):
-        self.in_size = -1
-        self.out_size = -1
-
-    def apply(self, x):
-        return np.fft.ifft2(x, norm="ortho")
-
-    def applyAdjoint(self, x):
-        return np.fft.fft2(x, norm="ortho")
-    
 class LinOpId(BaseLinOp):
     def __init__(self):
         self.in_size = -1
@@ -280,16 +247,14 @@ class StackLinOp(BaseLinOp):
             current_idx += (linop.out_size if linop.out_size>0 else self.in_size)
         return res
 
-# class OldStackLinOp(BaseLinOp):
-#     def __init__(self, LinOp1, LinOp2):
-#         self.LinOp1 = LinOp1
-#         self.LinOp2 = LinOp2
-#         self.in_size = np.maximum(LinOp1.in_size, LinOp2.in_size)
-#         self.out_size = LinOp1.out_size + LinOp2.out_size  # TODO: handle cases where out_size is undefined
+class LinOpTranspose(BaseLinOp):
+    def __init__(self, LinOpT):
+        self.LinOpT = LinOpT
+        self.in_size = LinOpT.out_size
+        self.out_size = LinOpT.in_size
 
-#     def apply(self, x):
-#         return np.concatenate((self.LinOp1.apply(x), self.LinOp2.apply(x)), axis=0)
+    def apply(self, x):
+        return self.LinOpT.applyAdjoint(x)
 
-#     def applyAdjoint(self, x):
-#         return self.LinOp2.applyAdjoint(x[:self.LinOp2.out_size]) + self.LinOp1.applyAdjoint(x[self.LinOp2.out_size:])
-
+    def applyAdjoint(self, x):
+        return self.LinOpT.apply(x)
