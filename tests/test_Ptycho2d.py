@@ -1,5 +1,4 @@
 ## Temporarily adding path
-from array import array
 import sys
 from pathlib import Path
 sys.path.append(str(Path().absolute()))
@@ -7,6 +6,8 @@ sys.path.append(str(Path().absolute()))
 ## === Test Start ===
 import numpy as np
 import math
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.animation as animation
@@ -16,7 +17,7 @@ from pyphaseretrieve        import algos
 from pyphaseretrieve        import phaseretrieval
 from pyphaseretrieve.linop  import *
 
-DAT_FILE_PATH = '/Users/chenguanchen/Desktop/Master Thesis/Ptychography Dataset/data/1LED/tif/' ## Local PATH
+DAT_FILE_PATH = '/home/kshen/Ptychography_Project/Dataset/1LED/tif/' ## Local PATH
 
 
 ## ================================================== Dataset  ====================================================
@@ -136,11 +137,11 @@ class ptycho2d_Laura_dataSet(object):
                 led_idx += 1
         led_index_map   = led_index_map.reshape(self.led_dia_number,self.led_dia_number)
 
-        bright_field_led_map = ((led_NA_map <= 0.99 * self.NA) * led_index_map).astype(np.int)
+        bright_field_led_map = ((led_NA_map <= 0.99 * self.NA) * led_index_map).astype(int)
 
         return bright_field_led_map
 
-    def load_image(self, img_index_array, load_img_or_not = True):
+    def load_image(self, img_index_array, load_img_or_not = True, remove_background = True, show_background:bool = False):
         v_center = self.CAMERA_V_RES/2
         h_center = self.CAMERA_H_RES/2
         crop_half_size = int(self.camera_size/2)
@@ -152,7 +153,6 @@ class ptycho2d_Laura_dataSet(object):
         if load_img_or_not:
             print('image loading...')
             img_list = []
-            y        = None
             for i in img_index_array:
                 file_name = str('ILED_{0:04}.tif'.format(i))
                 img       = plt.imread(file_path + file_name)
@@ -160,12 +160,27 @@ class ptycho2d_Laura_dataSet(object):
                 crop_img = img[int(v_center-crop_half_size):int(v_center+crop_half_size),int(h_center-crop_half_size):int(h_center+crop_half_size)]
                 img_list.append(crop_img)
 
-                if y is None:
-                    y = crop_img
-                else:
-                    y = np.concatenate([y,crop_img], axis=0)
                 # print(str('{:.2f}%').format((i-first_img_n)/(end_img_n-first_img_n)*100))
             print('finish loading...')
+
+            if remove_background:
+                img_background = img_list[0]
+                for _, img in enumerate(img_list):
+                    img_background = np.minimum(img_background, img)
+                    
+                if show_background:
+                    plt.figure()
+                    plt.imshow(img_background, cmap=cm.Greys_r)
+                    plt.title('Background image')
+                    plt.show()
+
+            y = None
+            for _, _crop_img in enumerate(img_list):
+                _crop_img_deback = _crop_img - img_background 
+                if y is None:
+                    y = _crop_img_deback
+                else:
+                    y = np.concatenate([y,_crop_img_deback], axis=0)
 
             return y, img_list, shifts_pair
         else:
@@ -228,6 +243,7 @@ class test_GD_in_ptych2d(object):
         ## 2. ground truth x generating
         reconstruction_res = ptycho_data.reconstruct_size
         x = self.generate_rand2d_x(reconstruction_res)
+        x_ft = np.fft.fft2(x, norm="ortho")
         print(f'recontruction size: {reconstruction_res}')
 
         ## 3. ptycho2d model create
@@ -236,14 +252,16 @@ class test_GD_in_ptych2d(object):
         ptycho_2d_model    = phaseretrieval.Ptychography2d(probe, shifts_pair= shifts_pair, reconstruct_size=reconstruction_res)
 
         ## 4. base on exsiting paras, generate y
-        y = np.abs(ptycho_2d_model.apply(x))**2
+        y = np.abs(ptycho_2d_model.apply(x_ft))**2
 
         ## 5. GD solver
         GD_method   = algos.GradientDescent(ptycho_2d_model, line_search= None, acceleration=None)
 
         ## 6. solve the problem
         initial_est = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)  # lr = 0.01 - 0.1
+        initial_est = np.fft.fft2(initial_est, norm="ortho")
         x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 100, lr = 0.07)
+        x_est = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
         print("Result correlation:")
@@ -255,19 +273,20 @@ class test_GD_in_ptych2d(object):
     def real_data_test(self):
         print('REAL dataset test \n----------------------')
         ## 1. use experimental setup from Laura dataset
-        camera_size = 20
+        camera_size = 100
         ptycho_data = ptycho2d_Laura_dataSet(camera_size)
 
         ## 2. ground truth x generating
-        reconstruction_res = ptycho_data.reconstruct_size
+        # reconstruction_res = ptycho_data.reconstruct_size
+        reconstruction_res = camera_size
         print(f'recontruction size: {reconstruction_res}')
 
         ## 3. image data selection
-        # full_img_array            = np.arange(1,293)
-        # img_idx_array             = full_img_array
+        full_img_array            = np.arange(1,293)
+        img_idx_array             = full_img_array
 
-        selected_img_array        = np.arange(117,177)
-        img_idx_array             = selected_img_array
+        # selected_img_array        = np.arange(127,167)
+        # img_idx_array             = selected_img_array
         
         # bright_field_led_map      = ptycho_data.compute_bright_field_LED()
         # bright_field_led_array    = bright_field_led_map[bright_field_led_map > 0]
@@ -291,7 +310,7 @@ class test_GD_in_ptych2d(object):
         #     initial_img = np.pad(img_list[146],math.floor((reconstruction_res-camera_size)/2),mode='edge')
         # initial_est = initial_img
 
-        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 100, lr = 0.000011)  # lr 20->20: 0.0000006, 20->29: 0.000011
+        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 50, lr = 10**(-7))  # lr 20->20: 0.0000006, 20->29: 0.00002
 
         ## 7. result
         ptycho_data.crop_rendering()
@@ -348,11 +367,12 @@ if __name__ == '__main__':
     # demo_dataset()
 
     # Laura_dataset = ptycho2d_Laura_dataSet(100)
+    # Laura_dataset.load_image(np.arange(1,293),show_background= True)
     # Laura_dataset.compute_bright_field_LED()
     # Laura_dataset.pupil_rendering()
     # Laura_dataset.total_shifts_rendering()
 
     ## Test Start
     ptycho2d_test = test_GD_in_ptych2d()
-    # ptycho2d_test.model_test()
-    ptycho2d_test.real_data_test()
+    ptycho2d_test.model_test()
+    # ptycho2d_test.real_data_test()
