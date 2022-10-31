@@ -166,31 +166,33 @@ class LinOpRoll(BaseLinOp):
     def applyAdjoint(self, x):
         return np.roll(x, shift=-self.shifts, axis=self.dims)
 
-class LinOpCrop2D(BaseLinOp):
+class LinOpFTCrop2D(BaseLinOp):
     def __init__(self, in_size, crop_size):
         self.in_size  = in_size
         self.out_size = crop_size
 
     def apply(self, x):
+        ft_shift_x = np.fft.fftshift(x)
+
         v_size, h_size = x.shape
         startx = int(h_size//2 - (self.out_size//2))
         starty = int(v_size//2 - (self.out_size//2))
-        return x[starty:starty+self.out_size,startx:startx+self.out_size]
+
+        ft_shift_x  = ft_shift_x[starty:starty+self.out_size,startx:startx+self.out_size]
+        return np.fft.fftshift(ft_shift_x)
 
     def applyAdjoint(self, x):
+        ft_shift_x = np.fft.fftshift(x)
+
         pad_size = self.in_size - self.out_size
-        _quo, _mod = divmod(pad_size,2)
-        _quo = int(_quo)
-        _mod = int(_mod)
         
-        if pad_size == 0:
+        if      pad_size == 0:
             return x
-        elif      _quo < 1:
-            return np.pad(x ,(0, 1), mode='constant')
-        elif    (_quo >= 1) and (_mod == 1):
-            return np.pad(x ,(_quo, _quo+1), mode='constant')
-        elif    (_quo >= 1) and (_mod == 0):
-            return np.pad(x , _quo, mode='constant')
+        else:
+            print((int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))))
+            ft_shift_x = np.pad(ft_shift_x ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
+            return np.fft.fftshift(ft_shift_x)
+
 
     
 ## Utils classes
