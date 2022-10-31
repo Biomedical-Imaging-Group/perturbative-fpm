@@ -6,12 +6,11 @@ sys.path.append(str(Path().absolute()))
 ## === Test Start ===
 import numpy as np
 import math
-import matplotlib
-matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.animation as animation
 import matplotlib.patches as patches
+from scipy import interpolate
 
 from pyphaseretrieve        import algos
 from pyphaseretrieve        import phaseretrieval
@@ -50,7 +49,9 @@ class ptycho2d_Laura_dataSet(object):
         self.reconstruct_size      = self.compute_reconstruction_size()
 
         self.total_shifts_h_map ,self.total_shifts_v_map , self.total_shifts_pair = self.compute_shifts()
-
+    
+    # ----------------------- methods -----------------------
+    # -------------------------------------------------------
     def compute_fourierResolution(self) -> tuple([float, float]):
         img_pixel_size         = self.camera_pixel_size/self.mag
         FoV                    = img_pixel_size*self.camera_size
@@ -62,12 +63,8 @@ class ptycho2d_Laura_dataSet(object):
         mid_pixel_idx         = math.floor(self.camera_size/2)
         pupil_radius          = self.NA/self.wave_lambda/self.fourier_res
 
-        if (self.camera_size%2) == 0:
-            camera_size_idx_upper = np.linspace(0, mid_pixel_idx, int(self.camera_size/2)+1)
-            camera_size_idx_lower = np.linspace(mid_pixel_idx-1,1, int(self.camera_size/2)-1)
-        else:
-            camera_size_idx_upper = np.linspace(0, mid_pixel_idx, math.floor(self.camera_size/2)+1)
-            camera_size_idx_lower = np.linspace(mid_pixel_idx-1,0, math.floor(self.camera_size/2))
+        camera_size_idx_upper = np.linspace(0, mid_pixel_idx, mid_pixel_idx+1)
+        camera_size_idx_lower = np.linspace(mid_pixel_idx-1, (1 - self.camera_size%2), int(self.camera_size - (mid_pixel_idx+1)) )
 
         camera_size_idx = np.concatenate([camera_size_idx_upper,camera_size_idx_lower])
 
@@ -142,14 +139,13 @@ class ptycho2d_Laura_dataSet(object):
         return bright_field_led_map
 
     def load_image(self, img_index_array, load_img_or_not = True, remove_background = True, show_background:bool = False):
-        v_center = self.CAMERA_V_RES/2
-        h_center = self.CAMERA_H_RES/2
-        crop_half_size = int(self.camera_size/2)
-
-        file_path = DAT_FILE_PATH
-
-        shifts_pair = self.total_shifts_pair[img_index_array,0:2]
-
+        
+        shifts_pair = self.total_shifts_pair[(img_index_array-1),0:2]
+        
+        file_path   = DAT_FILE_PATH
+        v_center        = self.CAMERA_V_RES/2
+        h_center        = self.CAMERA_H_RES/2
+        crop_half_size  = int(self.camera_size/2)
         if load_img_or_not:
             print('image loading...')
             img_list = []
@@ -159,8 +155,6 @@ class ptycho2d_Laura_dataSet(object):
 
                 crop_img = img[int(v_center-crop_half_size):int(v_center+crop_half_size),int(h_center-crop_half_size):int(h_center+crop_half_size)]
                 img_list.append(crop_img)
-
-                # print(str('{:.2f}%').format((i-first_img_n)/(end_img_n-first_img_n)*100))
             print('finish loading...')
 
             if remove_background:
@@ -169,10 +163,10 @@ class ptycho2d_Laura_dataSet(object):
                     img_background = np.minimum(img_background, img)
                     
                 if show_background:
-                    plt.figure()
                     plt.imshow(img_background, cmap=cm.Greys_r)
+                    plt.colorbar()
                     plt.title('Background image')
-                    plt.show()
+                    plt.savefig('background light')
 
             y = None
             for _, _crop_img in enumerate(img_list):
@@ -181,12 +175,13 @@ class ptycho2d_Laura_dataSet(object):
                     y = _crop_img_deback
                 else:
                     y = np.concatenate([y,_crop_img_deback], axis=0)
-
+            
             return y, img_list, shifts_pair
         else:
             return None, None, shifts_pair
         
-        
+    # ----------------------- Render f ----------------------
+    # -------------------------------------------------------
     def crop_rendering(self) -> None:
         v_center        = self.CAMERA_V_RES/2
         h_center        = self.CAMERA_H_RES/2
@@ -198,7 +193,7 @@ class ptycho2d_Laura_dataSet(object):
 
         fig, ax = plt.subplots()
         ax.imshow(img, cmap=cm.Greys_r)
-        ax.set_title('Center Bright field Image')
+        ax.set_title('Center Bright field Image with cropping area')
         rect = patches.Rectangle((h_center-crop_half_size, v_center-crop_half_size), self.camera_size, self.camera_size, linewidth=2, edgecolor='r', facecolor='none')
         ax.add_patch(rect)
 
@@ -234,10 +229,10 @@ class test_GD_in_ptych2d(object):
         x = (np.random.randn(in_dim, in_dim) + 1j * np.random.randn(in_dim, in_dim))
         return x
 
-    def model_test(self):
-        print('Model test \n----------------------')
+    def model_test_withoushifts(self) -> None:
+        print('Model test without shifts assignment \n----------------------')
         ## 1. use experimental setup from Laura dataset
-        camera_size = 20
+        camera_size = 50
         ptycho_data = ptycho2d_Laura_dataSet(camera_size)
 
         ## 2. ground truth x generating
@@ -248,8 +243,59 @@ class test_GD_in_ptych2d(object):
 
         ## 3. ptycho2d model create
         probe              = ptycho_data.pupil_mask
-        _, _, shifts_pair  = ptycho_data.load_image(np.arange(1,293), load_img_or_not=False)
+        ptycho_2d_model    = phaseretrieval.Ptychography2d(probe, reconstruct_size=reconstruction_res,n_img=19**2)
+        ptycho_2d_model.overlaping_rendering()
+
+        ## 4. base on exsiting paras, generate y
+        y = np.abs(ptycho_2d_model.apply(x_ft))**2
+
+        ## 5. GD solver
+        GD_method   = algos.GradientDescent(ptycho_2d_model, line_search= None, acceleration=None)
+
+        ## 6. solve the problem
+        initial_est = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
+        initial_est = np.fft.fft2(initial_est, norm="ortho")
+        # initial_est = x_ft + 1j * np.random.randn(reconstruction_res, reconstruction_res) * 2
+        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 100, lr = 0.037)
+        x_est = np.fft.ifft2(x_est, norm="ortho")
+
+        ## 7. result
+        print("Result correlation:")
+        _x      = np.ravel(x)
+        _x_est  = np.ravel(x_est)
+        print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
+
+        print("Result without optimize correlation:")
+        _x_init  = np.ravel(np.fft.ifft2(initial_est, norm="ortho"))
+        print(np.abs( (_x_init.T.conj() @ _x) /  (np.linalg.norm(_x_init)*np.linalg.norm(_x)) ))
+
+
+    def model_test(self):
+        print('Model test \n----------------------')
+        ## 1. use experimental setup from Laura dataset
+        camera_size = 70
+        ptycho_data = ptycho2d_Laura_dataSet(camera_size)
+
+        ## 2. ground truth x generating
+        reconstruction_res = ptycho_data.reconstruct_size
+        x = self.generate_rand2d_x(reconstruction_res)
+        x_ft = np.fft.fft2(x, norm="ortho")
+        print(f'recontruction size: {reconstruction_res}')
+
+        ## 3. image data selection
+        full_img_array            = np.linspace(146,148,3).astype(int)
+        img_idx_array             = full_img_array
+        
+        # bright_field_led_map      = ptycho_data.compute_bright_field_LED()
+        # bright_field_led_array    = bright_field_led_map[bright_field_led_map > 0]
+        # img_idx_array             = bright_field_led_array
+
+        ## 3. ptycho2d model create
+        probe              = ptycho_data.pupil_mask
+        _, _, shifts_pair  = ptycho_data.load_image(img_idx_array, load_img_or_not=False)
+        print(shifts_pair)
         ptycho_2d_model    = phaseretrieval.Ptychography2d(probe, shifts_pair= shifts_pair, reconstruct_size=reconstruction_res)
+        ptycho_2d_model.overlaping_rendering()
 
         ## 4. base on exsiting paras, generate y
         y = np.abs(ptycho_2d_model.apply(x_ft))**2
@@ -260,7 +306,7 @@ class test_GD_in_ptych2d(object):
         ## 6. solve the problem
         initial_est = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)  # lr = 0.01 - 0.1
         initial_est = np.fft.fft2(initial_est, norm="ortho")
-        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 100, lr = 0.07)
+        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 100, lr = 0.13)
         x_est = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
@@ -270,10 +316,10 @@ class test_GD_in_ptych2d(object):
         print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
     
 
-    def real_data_test(self):
+    def real_data_test(self, iteration, lr):
         print('REAL dataset test \n----------------------')
         ## 1. use experimental setup from Laura dataset
-        camera_size = 100
+        camera_size = 300
         ptycho_data = ptycho2d_Laura_dataSet(camera_size)
 
         ## 2. ground truth x generating
@@ -282,12 +328,9 @@ class test_GD_in_ptych2d(object):
         print(f'recontruction size: {reconstruction_res}')
 
         ## 3. image data selection
-        full_img_array            = np.arange(1,293)
+        full_img_array            = np.linspace(293,1,293).astype(int)
         img_idx_array             = full_img_array
 
-        # selected_img_array        = np.arange(127,167)
-        # img_idx_array             = selected_img_array
-        
         # bright_field_led_map      = ptycho_data.compute_bright_field_LED()
         # bright_field_led_array    = bright_field_led_map[bright_field_led_map > 0]
         # img_idx_array             = bright_field_led_array
@@ -296,37 +339,69 @@ class test_GD_in_ptych2d(object):
         probe                     = ptycho_data.pupil_mask
         y, img_list, shifts_pair  = ptycho_data.load_image(img_idx_array)
         ptycho_2d_model = phaseretrieval.Ptychography2d(probe, shifts_pair= shifts_pair, reconstruct_size=reconstruction_res)
+        # ptycho_2d_model.overlaping_rendering()
 
         ## 5. GD solver
         GD_method = algos.GradientDescent(ptycho_2d_model, line_search= None, acceleration=None)
 
         ## 6. solve the problem
         initial_est = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)
+        initial_est = np.fft.fft2(initial_est, norm="ortho")
 
-        # initial_est = img_list[146].astype(np.complex128)
-        # if (reconstruction_res-camera_size)%2 == 1:
-        #     initial_img = np.pad(img_list[146],(math.floor((reconstruction_res-camera_size)/2),math.floor((reconstruction_res-camera_size)/2)+1),mode='edge')
-        # else:
-        #     initial_img = np.pad(img_list[146],math.floor((reconstruction_res-camera_size)/2),mode='edge')
-        # initial_est = initial_img
-
-        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = 50, lr = 10**(-7))  # lr 20->20: 0.0000006, 20->29: 0.00002
+        # initial_est = img_list[int(len(img_list)/2)]
+        # initial_est = interpolate_img(initial_est, reconstruction_res) + 1j * np.random.randn(reconstruction_res, reconstruction_res)
+        # initial_est = np.fft.fft2(initial_est, norm="ortho")
+        
+        x_est = GD_method.iterate(y=y, initial_est=initial_est, n_iter = iteration, lr = lr) 
+        x_est = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
-        ptycho_data.crop_rendering()
+        # ptycho_data.crop_rendering()
         plt.figure()
         plt.imshow(img_list[int(len(img_list)/2)], cmap=cm.Greys_r)
+        plt.colorbar()
         plt.title('LED 147 image')
+
         plt.figure()
         plt.imshow(np.abs(x_est)**2, cmap=cm.Greys_r)
-        plt.title('Reconstruction image')
+        plt.colorbar()
+        plt.title('Intensity: Reconstructed image')
+        # plt.savefig(f'lr_search_img/AMP lr = {lr}, niter = {iteration}')
+
+        plt.figure()
+        plt.imshow(np.angle(x_est), cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Phase: Reconstruction image')
         plt.show()
+        # plt.savefig(f'lr_search_img/PHA lr = {lr}, niter = {iteration}')
+
 
 ## ================================================== END Test Class ==================================================
 ## ====================================================================================================================
 
 
 ## ============ functions ============
+def interpolate_img(img, high_res):
+    img_size = img.shape[0]
+    
+    half_size = math.floor(img_size/2)
+    if img_size % 2 == 1:
+        x_lin = np.arange(-half_size,half_size+1,1)
+    else:
+        x_lin = np.arange(-half_size,half_size,1)
+
+    high_x_lin = np.arange(-half_size,half_size,img_size/high_res)
+
+    inter_img_f = interpolate.interp2d(x_lin, x_lin, img, kind='cubic')
+    inter_img   = inter_img_f(high_x_lin, high_x_lin)
+
+    # plt.imshow(inter_img, cmap=cm.Greys_r)
+    # plt.colorbar()
+    # plt.title('Inter image')
+    # plt.savefig('Inter image')
+
+    return inter_img
+
 def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
@@ -366,7 +441,7 @@ if __name__ == '__main__':
     ## Dataset showing
     # demo_dataset()
 
-    # Laura_dataset = ptycho2d_Laura_dataSet(100)
+    # Laura_dataset = ptycho2d_Laura_dataSet(50)
     # Laura_dataset.load_image(np.arange(1,293),show_background= True)
     # Laura_dataset.compute_bright_field_LED()
     # Laura_dataset.pupil_rendering()
@@ -374,5 +449,25 @@ if __name__ == '__main__':
 
     ## Test Start
     ptycho2d_test = test_GD_in_ptych2d()
-    ptycho2d_test.model_test()
-    # ptycho2d_test.real_data_test()
+    # ptycho2d_test.model_test_withoushifts()
+    # ptycho2d_test.model_test()
+    ptycho2d_test.real_data_test(iteration = 100,lr= 0.000005)
+
+    # n_iter_list     = [50,100]
+    # lr_num_list     = [1.0]
+    # lr_power_list   = [10**(-5),10**(-6),10**(-7)]
+
+    # unique_combinations = []
+    # permut = itertools.permutations(lr_power_list, len(lr_num_list))
+    # for comb in permut:
+    #     zipped = zip(comb, lr_num_list)
+    #     unique_combinations.append(list(zipped))
+
+    # for _iteration in n_iter_list:
+    #     for idx,_comb1 in enumerate(unique_combinations):
+    #         print(idx)
+    #         _comb1 = _comb1[0]
+    #         ptycho2d_test.real_data_test(iteration=_iteration,lr= _comb1[1] * _comb1[0])
+    #         # ptycho2d_test.real_data_test(iteration=_iteration,lr= _comb2[1] * _comb2[0])
+    #         plt.figure().clear()
+    #         plt.close()
