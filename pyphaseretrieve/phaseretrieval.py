@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from pyphaseretrieve.linop import *
 
 class PhaseRetrievalBase:
@@ -22,13 +23,13 @@ class Ptychography1d(PhaseRetrievalBase):
         else:
             self.n_img = n_img
             self.probe_dia = np.count_nonzero(self.probe)
-            self.upper_origin = self.probe_dia / 2
-            self.lower_origin = self.probe_size - self.probe_dia / 2
-            self.step_size = int((self.lower_origin - self.upper_origin) / self.n_img)
+            upper_origin = self.probe_dia / 2
+            lower_origin = self.probe_size - self.probe_dia / 2
+            step_size = int((lower_origin - upper_origin) / self.n_img)
             
             self.shifts = []
             for _idx in range(self.n_img):
-                self.shifts.append(_idx*self.step_size)
+                self.shifts.append(_idx * step_size)
         
         op_fft = LinOpFFT()
         op_probe = LinOpMul(self.probe)
@@ -80,16 +81,9 @@ class Ptychography1d(PhaseRetrievalBase):
 
     
 class Ptychography2d(PhaseRetrievalBase):
-    def __init__(self, probe, shifts_pair = None, reconstruct_size = None, n_img:int = 16):
-        # assume reconstruction size is square
-        # shifts_pair = [v_shifts, h_shifts]
+    def __init__(self, probe, shifts_pair = None, reconstruct_size = None, n_img:int = 25):
         self.probe            = probe
         self.probe_size       = probe.shape[0]
-
-        idx = 0
-        while self.probe[idx][0] != 0:
-            idx += 1
-        self.probe_dia = (idx-1)*2
 
         if reconstruct_size is not None:
             self.reconstruct_size = reconstruct_size
@@ -100,37 +94,50 @@ class Ptychography2d(PhaseRetrievalBase):
             assert shifts_pair.shape[1] == 2 , "shifts_map dimension should be (n,2)"
             self.shifts_pair = shifts_pair
             self.n_img       = shifts_pair.shape[0]
-
         else:
-            pass
-            # assert int(math.sqrt(n_img))**2 == n_img, "n_img need to be perfect square"
-            # self.n_img = n_img
+            assert int(math.sqrt(n_img))**2 == n_img, "n_img need to be perfect square"
+            self.n_img      = n_img
+            sqrt_n_img      = math.sqrt(self.n_img)
 
-            # left_origin = self.probe_dia / 2
-            # right_origin = self.probe_size - self.probe_dia / 2
-            # step_size = int((right_origin - left_origin) / int(math.sqrt(self.n_img)))
+            shift_probe     = np.fft.fftshift(self.probe)
+            center_row      = shift_probe[math.floor(self.probe_size/2)]    
 
-            # shifts_h = []
-            # shifts_v = []
-            # for _idx in range(int(math.sqrt(self.n_img))):
-            #     shifts_h.append(_idx*step_size)
-            #     shifts_v.append(_idx*step_size)
+            self.probe_dia  = np.count_nonzero(center_row)
+            left_origin     = math.floor(self.probe_dia/2)
+            right_origin    = self.probe_size - math.floor(self.probe_dia/2)
+            step_size       = math.floor((right_origin - left_origin) / (sqrt_n_img-1))
 
-            # shifts_h = np.array(shifts_h)
-            # shifts_v = np.array(shifts_v)
+            shifts_h = []
+            shifts_v = []
+            for _idx in np.arange(-math.floor(sqrt_n_img/2), math.ceil(sqrt_n_img/2), 1):
+                shifts_h.append(_idx*step_size)
+                shifts_v.append(_idx*step_size)
 
-            # self.shifts_pair = np.concatenate([shifts_h.reshape(self.n_img,1),shifts_v.reshape(self.n_img,1)],axis=1)
-            # print(self.shifts_pair)
-           
-        op_fft2     = LinOpFFT2()
+            shifts_v = np.array(shifts_v)
+            shifts_h = np.array(shifts_h)
+
+            shifts_h, shifts_v  = np.meshgrid(shifts_h,shifts_v)
+
+            self.shifts_pair    = np.concatenate([shifts_h.reshape(self.n_img,1),shifts_v.reshape(self.n_img,1)],axis=1)
+
         op_ifft2    = LinOpIFFT2() 
-        op_crop     = LinOpCrop2D(self.reconstruct_size ,self.probe_size)
+        op_crop     = LinOpFTCrop2D(self.reconstruct_size ,self.probe_size)
         op_probe    = LinOpMul(self.probe)
         self.linop = Stack2DLinOp([
-            op_ifft2 @ op_probe @ op_crop @ LinOpRoll(int(self.shifts_pair[i_probe,1]), 1) @ LinOpRoll(int(self.shifts_pair[i_probe,0]), 0) @ op_fft2
+            op_ifft2 @ op_probe @ op_crop @ LinOpRoll(int(self.shifts_pair[i_probe,1]), 1) @ LinOpRoll(int(self.shifts_pair[i_probe,0]), 0)
             for i_probe in range(self.n_img)
         ])
         self.in_size = self.linop.in_size
+
+    def get_probe_map(self):
+        overlap_img = np.zeros(shape=(self.probe.shape))
+        for i_probe in range(self.n_img):
+            roll_linop  = LinOpRoll(int(self.shifts_pair[i_probe,1]), 1) @ LinOpRoll(int(self.shifts_pair[i_probe,0]),0)
+            overlap_img = roll_linop.apply(overlap_img)
+            overlap_img = overlap_img + np.fft.fftshift(self.probe)
+            overlap_img = roll_linop.applyAdjoint(overlap_img)
+
+        return overlap_img
     
     def overlap_rate(self):
         pass
