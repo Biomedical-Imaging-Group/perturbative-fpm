@@ -172,26 +172,22 @@ class LinOpFTCrop2D(BaseLinOp):
         self.out_size = crop_size
 
     def apply(self, x):
-        ft_shift_x = np.fft.fftshift(x)
-
         v_size, h_size = x.shape
-        startx = int(h_size//2 - (self.out_size//2))
-        starty = int(v_size//2 - (self.out_size//2))
+        h_start = int(h_size//2 - (self.out_size//2))
+        v_start = int(v_size//2 - (self.out_size//2))
 
-        ft_shift_x  = ft_shift_x[starty:starty+self.out_size,startx:startx+self.out_size]
-        return np.fft.fftshift(ft_shift_x)
+        fft_shift_x = np.fft.fftshift(x)
+        fft_shift_x = fft_shift_x[v_start:v_start+self.out_size, h_start:h_start+self.out_size]
+        return np.fft.fftshift(fft_shift_x)
 
     def applyAdjoint(self, x):
-        ft_shift_x = np.fft.fftshift(x)
-
-        pad_size = self.in_size - self.out_size
-        
+        pad_size = self.in_size - self.out_size        
         if      pad_size == 0:
             return x
         else:
-            print((int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))))
-            ft_shift_x = np.pad(ft_shift_x ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
-            return np.fft.fftshift(ft_shift_x)
+            fft_shift_x = np.fft.fftshift(x)
+            fft_shift_x = np.pad(fft_shift_x ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
+            return np.fft.fftshift(fft_shift_x)
 
 
     
@@ -286,25 +282,10 @@ class StackLinOp(BaseLinOp):
 
     def applyAdjoint(self, x):       
         current_idx = 0
-        res = np.zeros((int(self.in_size),)).astype(np.complex128)
-        for linop in self.LinOpList:
-            res += linop.applyAdjoint(x[current_idx:current_idx+linop.out_size])
-            current_idx += (linop.out_size if linop.out_size>0 else self.in_size)
-        return res
-
-class Stack2DLinOp(BaseLinOp):
-    def __init__(self, LinOpList):
-        self.LinOpList = LinOpList
-        self.in_size = np.amax(np.array([linop.in_size for linop in LinOpList]))
-        self.out_size = np.sum(np.array([(linop.out_size if linop.out_size>0 else self.in_size)
-            for linop in LinOpList]))
-
-    def apply(self, x):
-        return np.concatenate(tuple(linop.apply(x) for linop in self.LinOpList), axis=0)
-
-    def applyAdjoint(self, x):       
-        current_idx = 0
-        res = np.zeros((int(self.in_size),int(self.in_size))).astype(np.complex128)
+        if x.ndim == 2:
+            res = np.zeros((int(self.in_size),int(self.in_size))).astype(np.complex128)
+        else:
+            res = np.zeros((int(self.in_size),)).astype(np.complex128)
         for linop in self.LinOpList:
             res += linop.applyAdjoint(x[current_idx:current_idx+linop.out_size])
             current_idx += (linop.out_size if linop.out_size>0 else self.in_size)
