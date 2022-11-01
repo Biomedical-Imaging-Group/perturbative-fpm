@@ -86,9 +86,11 @@ class ptycho2d_Laura_dataSet(object):
         
     def get_reconstruction_size(self) -> int:
         synthetic_NA            = self.NA_illu + self.NA
-        reconstruct_dia_number  = 2*synthetic_NA/self.wave_lambda/self.fourier_res
+        reconstruct_dia_number  = math.ceil(2*synthetic_NA/self.wave_lambda/self.fourier_res)
+        if reconstruct_dia_number%2 == 1:
+            reconstruct_dia_number += 1
 
-        return math.ceil(reconstruct_dia_number)
+        return int(reconstruct_dia_number)
 
     def get_shiftsMap_shiftsPairs(self, return_sinThetaMap_ledMask:bool = False):
         led_ra_size         = math.floor(self.led_dia_number/2)
@@ -141,13 +143,14 @@ class ptycho2d_Laura_dataSet(object):
         return bright_field_led_map
 
     def select_image(self, img_index_array, load_img_or_not:bool = True, remove_background:bool = True, show_background:bool = False):
-        
         shifts_pair     = self.total_shifts_pair[(img_index_array-1),0:2]
+        print(shifts_pair)
         
         file_path       = DAT_FILE_PATH
-        v_center        = math.ceil(self.CAMERA_V_RES/2)
-        h_center        = math.ceil(self.CAMERA_H_RES/2)
-        crop_half_size  = int(self.camera_size/2)
+
+        v_start   = int(self.CAMERA_V_RES//2 - self.camera_size//2)
+        h_start   = int(self.CAMERA_H_RES//2 - self.camera_size//2)
+        crop_size  = self.camera_size
         if load_img_or_not:
             print('image loading...')
             img_list = []
@@ -155,9 +158,9 @@ class ptycho2d_Laura_dataSet(object):
                 file_name = str('ILED_{0:04}.tif'.format(i))
                 img       = plt.imread(file_path + file_name)
 
-                crop_img = img[int(v_center-crop_half_size):int(v_center+crop_half_size),int(h_center-crop_half_size):int(h_center+crop_half_size)]
+                crop_img = img[v_start:v_start+crop_size, h_start:h_start+crop_size]
                 img_list.append(crop_img)
-            print('finish loading...')
+            print('finish loading...')  
 
             if remove_background:
                 img_background = img_list[0]
@@ -268,10 +271,16 @@ class test_GD_in_ptych2d(object):
         _x      = np.ravel(x)
         _x_est  = np.ravel(x_est)
         print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
+
+        print("Result correlation without optimize:")
+        _x_init  = np.ravel(np.fft.ifft2(initial_est, norm="ortho"))
+        print(np.abs( (_x_init.T.conj() @ _x) /  (np.linalg.norm(_x_init)*np.linalg.norm(_x)) ))
     
 
     def real_data_test(self, camera_size:int, img_idx_array, n_iter:int, lr):
         print('REAL dataset test \n----------------------')
+        assert camera_size%2 == 0 , "Camera size should be even"
+
         ## 1. use experimental setup from Laura dataset
         self.ptycho_data            = ptycho2d_Laura_dataSet(camera_size)
 
@@ -291,10 +300,6 @@ class test_GD_in_ptych2d(object):
         ## 6. solve the problem
         initial_est                 = np.ones(shape= (reconstruction_res,reconstruction_res), dtype= np.complex128)
         initial_est                 = np.fft.fft2(initial_est, norm="ortho")
-
-        # initial_est = img_list[int(len(img_list)/2)]
-        # initial_est = interpolate_img(initial_est, reconstruction_res) + 1j * np.random.randn(reconstruction_res, reconstruction_res)
-        # initial_est = np.fft.fft2(initial_est, norm="ortho")
         
         x_est                       = GD_method.iterate(y=y, initial_est=initial_est, n_iter = n_iter, lr = lr) 
         x_est                       = np.fft.ifft2(x_est, norm="ortho")
@@ -408,28 +413,22 @@ def animation_show(img_list:list, data_range = None):
 
 
 if __name__ == '__main__':
-    ## Dataset Demo
-    # Laura_dataset = ptycho2d_Laura_dataSet(200)
-    # Laura_dataset.select_image(np.arange(1,293),show_background= True)
-    # Laura_dataset.get_bright_field_LED_map()
-    # Laura_dataset.pupil_rendering()
-    # Laura_dataset.total_shifts_rendering()
-    # plt.show()
-
     ## Test Start
     ptycho2d_test = test_GD_in_ptych2d()
 
     # Test 1: model test
-    # img_idx_array = np.linspace(147,148,2).astype(int)
-    # ptycho2d_test.model_test(camera_size= 70, img_idx_array=img_idx_array, n_iter=1, lr=0.107)
+    # img_idx_array = np.linspace(1,293,293).astype(int)
+    # ptycho2d_test.model_test(camera_size= 70, img_idx_array= img_idx_array, n_iter= 100, lr= 0.107)
     
     # Test 2: real data
     img_idx_array = np.linspace(1,293,293).astype(int)
-    ptycho2d_test.real_data_test(camera_size= 191, img_idx_array= img_idx_array, n_iter= 50,lr= 1*10**(-6))
+    ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, n_iter= 50,lr= 3*10**(-6))
     plt.show()
 
     # Test 3: auto shift
-    # ptycho2d_test.model_test_withoushifts(camera_size= 50, n_img= 13**2, n_iter= 100, lr= 0.08)
+    # ptycho2d_test.model_test_withoushifts(camera_size= 64, n_img= 17**2, n_iter= 200, lr= 0.045)  # 64, 17**2, 200, 0.0457
+    # print(f'overlap rate: {ptycho2d_test.ptycho_2d_model.overlap_rate()}')
+    
     # plt.figure()
     # plt.imshow(ptycho2d_test.ptycho_2d_model.get_probe_map(), cmap= cm.Greys_r)
     # plt.colorbar()
