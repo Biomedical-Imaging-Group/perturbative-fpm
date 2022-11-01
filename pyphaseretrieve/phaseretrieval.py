@@ -82,6 +82,7 @@ class Ptychography1d(PhaseRetrievalBase):
     
 class Ptychography2d(PhaseRetrievalBase):
     def __init__(self, probe, shifts_pair = None, reconstruct_size = None, n_img:int = 25):
+        """probe is the probe in FT Domain"""
         self.probe            = probe
         self.probe_size       = probe.shape[0]
 
@@ -101,29 +102,27 @@ class Ptychography2d(PhaseRetrievalBase):
 
             shift_probe     = np.fft.fftshift(self.probe)
             center_row      = shift_probe[math.floor(self.probe_size/2)]    
-
             self.probe_dia  = np.count_nonzero(center_row)
-            left_origin     = math.floor(self.probe_dia/2)
-            right_origin    = self.probe_size - math.floor(self.probe_dia/2)
-            step_size       = math.floor((right_origin - left_origin) / (sqrt_n_img-1))
+
+            self.step_size  = math.ceil((self.probe_size - 2*math.floor(self.probe_dia/2)) / (sqrt_n_img-1))
 
             shifts_h = []
             shifts_v = []
             for _idx in np.arange(-math.floor(sqrt_n_img/2), math.ceil(sqrt_n_img/2), 1):
-                shifts_h.append(_idx*step_size)
-                shifts_v.append(_idx*step_size)
+                shifts_h.append(_idx*self.step_size)
+                shifts_v.append(_idx*self.step_size)
 
             shifts_v = np.array(shifts_v)
             shifts_h = np.array(shifts_h)
 
             shifts_h, shifts_v  = np.meshgrid(shifts_h,shifts_v)
 
-            self.shifts_pair    = np.concatenate([shifts_h.reshape(self.n_img,1),shifts_v.reshape(self.n_img,1)],axis=1)
+            self.shifts_pair    = np.concatenate([shifts_v.reshape(self.n_img,1),shifts_h.reshape(self.n_img,1)],axis=1)
 
         op_ifft2    = LinOpIFFT2() 
         op_crop     = LinOpFTCrop2D(self.reconstruct_size ,self.probe_size)
         op_probe    = LinOpMul(self.probe)
-        self.linop = Stack2DLinOp([
+        self.linop  = StackLinOp([
             op_ifft2 @ op_probe @ op_crop @ LinOpRoll(int(self.shifts_pair[i_probe,1]), 1) @ LinOpRoll(int(self.shifts_pair[i_probe,0]), 0)
             for i_probe in range(self.n_img)
         ])
@@ -131,13 +130,22 @@ class Ptychography2d(PhaseRetrievalBase):
 
     def get_probe_map(self):
         overlap_img = np.zeros(shape=(self.probe.shape))
+        shift_probe = np.fft.fftshift(self.probe)
         for i_probe in range(self.n_img):
             roll_linop  = LinOpRoll(int(self.shifts_pair[i_probe,1]), 1) @ LinOpRoll(int(self.shifts_pair[i_probe,0]),0)
-            overlap_img = roll_linop.apply(overlap_img)
-            overlap_img = overlap_img + np.fft.fftshift(self.probe)
-            overlap_img = roll_linop.applyAdjoint(overlap_img)
+            overlap_img = overlap_img + roll_linop.apply(shift_probe)
 
         return overlap_img
     
     def overlap_rate(self):
-        pass
+        if self.probe_dia is None:
+            return
+        else:
+            probe_r = self.probe_dia//2
+            if self.step_size > (probe_r*2):
+                return 0
+            else:
+                circ_sector     = 2*(np.arccos(self.step_size/2/probe_r)/(2*np.pi)) * np.pi*probe_r**2
+                tria_area       = self.step_size/2 * np.sqrt(probe_r**2 - (self.step_size/2)**2)
+                overlap         = 2*(circ_sector - tria_area)/np.pi/(probe_r**2)
+                return overlap
