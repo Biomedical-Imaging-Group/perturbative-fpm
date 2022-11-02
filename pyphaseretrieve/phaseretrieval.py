@@ -129,8 +129,11 @@ class Ptychography2d(PhaseRetrievalBase):
         self.in_size = self.linop.in_size
 
     def get_probe_map(self):
-        overlap_img = np.zeros(shape=(self.probe.shape))
+        pad_size    = self.reconstruct_size - self.probe_size
         shift_probe = np.fft.fftshift(self.probe)
+        shift_probe = np.pad(shift_probe ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
+
+        overlap_img = np.zeros(shape=(self.reconstruct_size,self.reconstruct_size))
         for i_probe in range(self.n_img):
             roll_linop  = LinOpRoll(int(self.shifts_pair[i_probe,1]), 1) @ LinOpRoll(int(self.shifts_pair[i_probe,0]),0)
             overlap_img = overlap_img + roll_linop.apply(shift_probe)

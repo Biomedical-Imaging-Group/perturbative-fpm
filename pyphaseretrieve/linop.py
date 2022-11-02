@@ -178,7 +178,7 @@ class LinOpFTCrop2D(BaseLinOp):
 
         fft_shift_x = np.fft.fftshift(x)
         fft_shift_x = fft_shift_x[v_start:v_start+self.out_size, h_start:h_start+self.out_size]
-        return np.fft.fftshift(fft_shift_x)
+        return np.fft.ifftshift(fft_shift_x)
 
     def applyAdjoint(self, x):
         pad_size = self.in_size - self.out_size        
@@ -187,7 +187,7 @@ class LinOpFTCrop2D(BaseLinOp):
         else:
             fft_shift_x = np.fft.fftshift(x)
             fft_shift_x = np.pad(fft_shift_x ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
-            return np.fft.fftshift(fft_shift_x)
+            return np.fft.ifftshift(fft_shift_x)
 
 
     
