@@ -25,8 +25,8 @@ class ptycho2d_Laura_dataSet(object):
     def __init__(self, camera_size:int) -> None:
         ## Experiment Setup Parameters Setting (distance and length unit: um)
         # Optical system
-        self.wave_lambda     = 0.6292
-        self.NA              = 0.1
+        self.wave_lambda        = 0.6292
+        self.NA                 = 0.1
         # Camera system
         self.camera_size        = camera_size
         self.mag                = 8.1485
@@ -34,9 +34,9 @@ class ptycho2d_Laura_dataSet(object):
         self.CAMERA_H_RES       = 2560
         self.CAMERA_V_RES       = 2160
         # LED system
-        self.led_pitch       = 4000
-        self.led_d_z         = 67500
-        self.led_dia_number  = 19
+        self.led_pitch          = 4000
+        self.led_d_z            = 67500
+        self.led_dia_number     = 19
 
         ## generate experimental setup
         self.experimentSetup()
@@ -61,21 +61,16 @@ class ptycho2d_Laura_dataSet(object):
         return fourier_resolution
 
     def get_pupil_mask(self):
-        mid_pixel_idx         = math.floor(self.camera_size/2)
-        pupil_radius          = self.NA/self.wave_lambda/self.fourier_res
+        pupil_radius             = self.NA/self.wave_lambda/self.fourier_res
 
-        camera_size_idx_upper = np.linspace(0, mid_pixel_idx, mid_pixel_idx+1)
-        camera_size_idx_lower = np.linspace(mid_pixel_idx-1, (1 - self.camera_size%2), int(self.camera_size - (mid_pixel_idx+1)) )
-
-        camera_size_idx = np.concatenate([camera_size_idx_upper,camera_size_idx_lower])
-
+        camera_size_idx          = np.linspace(-math.floor(self.camera_size/2),math.ceil(self.camera_size/2)-1,self.camera_size) 
         temp_mask_h, temp_mask_v = np.meshgrid(camera_size_idx,camera_size_idx)
 
         pupil_mask, _ = cart2pol(temp_mask_h,temp_mask_v)
         pupil_mask[pupil_mask <= pupil_radius] = 1
         pupil_mask[pupil_mask >= pupil_radius] = 0
 
-        return pupil_mask
+        return np.fft.fftshift(pupil_mask)
 
     def get_illumnationNA(self) -> float:
         led_r_number    = math.floor(self.led_dia_number/2)
@@ -87,10 +82,8 @@ class ptycho2d_Laura_dataSet(object):
     def get_reconstruction_size(self) -> int:
         synthetic_NA            = self.NA_illu + self.NA
         reconstruct_dia_number  = math.ceil(2*synthetic_NA/self.wave_lambda/self.fourier_res)
-        if reconstruct_dia_number%2 == 1:
-            reconstruct_dia_number += 1
 
-        return int(reconstruct_dia_number)
+        return reconstruct_dia_number
 
     def get_shiftsMap_shiftsPairs(self, return_sinThetaMap_ledMask:bool = False):
         led_ra_size         = math.floor(self.led_dia_number/2)
@@ -142,15 +135,14 @@ class ptycho2d_Laura_dataSet(object):
 
         return bright_field_led_map
 
-    def select_image(self, img_index_array, load_img_or_not:bool = True, remove_background:bool = True, show_background:bool = False):
+    def select_image(self, img_index_array, centre:list = [0, 0], load_img_or_not:bool = True, remove_background:bool = True, show_background:bool = False):
         shifts_pair     = self.total_shifts_pair[(img_index_array-1),0:2]
-        print(shifts_pair)
         
         file_path       = DAT_FILE_PATH
 
-        v_start   = int(self.CAMERA_V_RES//2 - self.camera_size//2)
-        h_start   = int(self.CAMERA_H_RES//2 - self.camera_size//2)
-        crop_size  = self.camera_size
+        h_start     = int(self.CAMERA_H_RES//2 + centre[0] - self.camera_size//2)
+        v_start     = int(self.CAMERA_V_RES//2 - centre[1] - self.camera_size//2)
+        crop_size   = self.camera_size
         if load_img_or_not:
             print('image loading...')
             img_list = []
@@ -188,9 +180,9 @@ class ptycho2d_Laura_dataSet(object):
         
     # ----------------------- Render f ----------------------
     # -------------------------------------------------------
-    def crop_rendering(self) -> None:
-        v_center        = self.CAMERA_V_RES/2
-        h_center        = self.CAMERA_H_RES/2
+    def crop_rendering(self, centre:list = [0,0]) -> None:
+        v_center        = self.CAMERA_V_RES/2 - centre[1]
+        h_center        = self.CAMERA_H_RES/2 + centre[0]
         crop_half_size  = int(self.camera_size/2)
 
         file_path       = DAT_FILE_PATH
@@ -202,6 +194,7 @@ class ptycho2d_Laura_dataSet(object):
         ax.set_title('Center Bright field Image with cropping area')
         rect = patches.Rectangle((h_center-crop_half_size, v_center-crop_half_size), self.camera_size, self.camera_size, linewidth=2, edgecolor='r', facecolor='none')
         ax.add_patch(rect)
+        plt.title('Cropping')
 
     def pupil_rendering(self) -> None:
         plt.figure()
@@ -231,8 +224,8 @@ class test_GD_in_ptych2d(object):
         print('Ptycho2D test with GD Start\n======================')
         pass
 
-    def generate_rand2d_x(self, in_dim):
-        x = (np.random.randn(in_dim, in_dim) + 1j * np.random.randn(in_dim, in_dim))
+    def generate_rand2d_x(self, in_dim, scale=0.5):
+        x = 1 + scale*(np.random.randn(in_dim, in_dim) + 1j * np.random.randn(in_dim, in_dim))
         return x
 
 
@@ -277,10 +270,8 @@ class test_GD_in_ptych2d(object):
         print(np.abs( (_x_init.T.conj() @ _x) /  (np.linalg.norm(_x_init)*np.linalg.norm(_x)) ))
     
 
-    def real_data_test(self, camera_size:int, img_idx_array, n_iter:int, lr):
+    def real_data_test(self, camera_size:int, img_idx_array, n_iter:int, lr, centre:list= [0,0]):
         print('REAL dataset test \n----------------------')
-        assert camera_size%2 == 0 , "Camera size should be even"
-
         ## 1. use experimental setup from Laura dataset
         self.ptycho_data            = ptycho2d_Laura_dataSet(camera_size)
 
@@ -291,7 +282,7 @@ class test_GD_in_ptych2d(object):
 
         ## 4. ptycho2d model create
         probe                       = self.ptycho_data.get_pupil_mask()
-        y, img_list, shifts_pair    = self.ptycho_data.select_image(img_idx_array)
+        y, img_list, shifts_pair    = self.ptycho_data.select_image(img_idx_array, centre= centre)
         self.ptycho_2d_model        = phaseretrieval.Ptychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
 
         ## 5. GD solver
@@ -361,7 +352,6 @@ class test_GD_in_ptych2d(object):
         _x_init  = np.ravel(np.fft.ifft2(initial_est, norm="ortho"))
         print(np.abs( (_x_init.T.conj() @ _x) /  (np.linalg.norm(_x_init)*np.linalg.norm(_x)) ))
 
-
 ## ================================================== END Test Class ==================================================
 ## ====================================================================================================================
 
@@ -417,16 +407,17 @@ if __name__ == '__main__':
     ptycho2d_test = test_GD_in_ptych2d()
 
     # Test 1: model test
-    # img_idx_array = np.linspace(1,293,293).astype(int)
-    # ptycho2d_test.model_test(camera_size= 70, img_idx_array= img_idx_array, n_iter= 100, lr= 0.107)
+    img_idx_array = np.linspace(1,293,293).astype(int)
+    ptycho2d_test.model_test(camera_size= 50, img_idx_array= img_idx_array, n_iter= 500, lr= 0.1)
     
     # Test 2: real data
-    img_idx_array = np.linspace(1,293,293).astype(int)
-    ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, n_iter= 50,lr= 3*10**(-6))
-    plt.show()
+    # centre = [0,0]
+    # img_idx_array = np.linspace(1,293,293).astype(int)
+    # ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= 50,lr= 3e-6)
+    # plt.show()
 
     # Test 3: auto shift
-    # ptycho2d_test.model_test_withoushifts(camera_size= 64, n_img= 17**2, n_iter= 200, lr= 0.045)  # 64, 17**2, 200, 0.0457
+    # ptycho2d_test.model_test_withoushifts(camera_size= 64, n_img= 17**2, n_iter= 1, lr= 0.045)  # 64, 17**2, 200, 0.0457
     # print(f'overlap rate: {ptycho2d_test.ptycho_2d_model.overlap_rate()}')
     
     # plt.figure()
