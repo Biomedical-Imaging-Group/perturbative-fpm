@@ -166,7 +166,7 @@ class LinOpRoll(BaseLinOp):
     def applyAdjoint(self, x):
         return np.roll(x, shift=-self.shifts, axis=self.dims)
 
-class LinOpFTCrop2D(BaseLinOp):
+class LinOpFourierCrop2d(BaseLinOp):
     def __init__(self, in_size, crop_size):
         self.in_size  = in_size
         self.out_size = crop_size

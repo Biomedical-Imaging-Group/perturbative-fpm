@@ -71,35 +71,33 @@ class GradientDescent:
         
 
 class GerchbergSaxton: 
-    def __init__(self, near_measurement, far_measurement) -> None:
+    def __init__(self, near_field_intensity, far_field_intensity):
+        self.amp_fourier_space = np.sqrt(far_field_intensity)   
+        self.amp_real_space = np.sqrt(near_field_intensity)
 
-        self.amp_ft_plane    = np.sqrt(far_measurement)   
-        self.amp_img_plane   = np.sqrt(near_measurement)
+        self.in_size = near_field_intensity.shape
+        self.lost_list = []
+        self.current_iter = 0
 
-        self.input_img_shape = near_measurement.shape
-        self.lost_list       = []
-        self.current_iter    = 0
-
-    def iterate(self,initial_est = None, n_iter = 100):
-
+    def iterate(self, initial_est= None, n_iter= 100):
         if initial_est is not None:
-            phase_est   = np.copy(initial_est)
+            phase_est = np.copy(initial_est)
         else:
-            phase_est   = np.ones(shape=self.input_img_shape, dtype=np.complex128)
+            phase_est = np.ones(shape= self.in_size, dtype= np.complex128)
 
-        field_img_plane = self.amp_img_plane * np.exp( 1j * phase_est)
+        field_real_space = self.amp_real_space * np.exp(1j*phase_est)
         for i_iter in range(n_iter):
-            _field_ft_plane = np.fft.fft2(field_img_plane)
-            field_ft_plane = self.amp_ft_plane * np.exp( 1j * np.angle(_field_ft_plane))
+            _field_fourier_space = np.fft.fft2(field_real_space)
+            field_fourier_space = self.amp_fourier_space * np.exp(1j*np.angle(_field_fourier_space))
 
-            _field_img_plane = np.fft.ifft2(field_ft_plane)
-            field_img_plane = self.amp_img_plane * np.exp( 1j * np.angle(_field_img_plane))
+            _field_real_space = np.fft.ifft2(field_fourier_space)
+            field_real_space = self.amp_real_space * np.exp(1j*np.angle(_field_real_space))
 
-            lost = np.sum( (np.abs(_field_ft_plane) - self.amp_ft_plane)**2 ) / np.sum((self.amp_ft_plane)**2)
+            lost = np.sum((np.abs(_field_fourier_space) - self.amp_fourier_space)**2) / np.sum((self.amp_fourier_space)**2)
             self.lost_list.append(lost)
             self.current_iter += 1
         
-        return field_img_plane
+        return field_real_space
 
 def _compute_loss_gradient(y, pr_model, x_est):
     out_field = pr_model.apply(x_est)

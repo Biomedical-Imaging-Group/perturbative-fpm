@@ -225,7 +225,7 @@ class test_GD_in_ptych2d(object):
         pass
 
     def generate_rand2d_x(self, in_dim, scale=0.5):
-        x = 1 + scale*(np.random.randn(in_dim, in_dim) + 1j * np.random.randn(in_dim, in_dim))
+        x = (np.random.randn(in_dim, in_dim) + 1j * np.random.randn(in_dim, in_dim))
         return x
 
 
@@ -244,7 +244,7 @@ class test_GD_in_ptych2d(object):
         ## 3. ptycho2d model create
         probe                   = self.ptycho_data.get_pupil_mask()
         _, _, shifts_pair       = self.ptycho_data.select_image(img_idx_array, load_img_or_not=False)
-        self.ptycho_2d_model    = phaseretrieval.Ptychography2d(probe = probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
+        self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe = probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
 
         ## 4. base on exsiting paras, generate y
         y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
@@ -283,7 +283,7 @@ class test_GD_in_ptych2d(object):
         ## 4. ptycho2d model create
         probe                       = self.ptycho_data.get_pupil_mask()
         y, img_list, shifts_pair    = self.ptycho_data.select_image(img_idx_array, centre= centre)
-        self.ptycho_2d_model        = phaseretrieval.Ptychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
+        self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
 
         ## 5. GD solver
         GD_method                   = algos.GradientDescent(self.ptycho_2d_model, line_search= None, acceleration=None)
@@ -327,7 +327,7 @@ class test_GD_in_ptych2d(object):
 
         ## 3. ptycho2d model create
         probe                   = self.ptycho_data.pupil_mask
-        self.ptycho_2d_model    = phaseretrieval.Ptychography2d(probe= probe, reconstruct_size= reconstruction_res, n_img= n_img)
+        self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe= probe, reconstruct_size= reconstruction_res, n_img= n_img)
 
         ## 4. base on exsiting paras, generate y
         y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
@@ -407,17 +407,17 @@ if __name__ == '__main__':
     ptycho2d_test = test_GD_in_ptych2d()
 
     # Test 1: model test
-    img_idx_array = np.linspace(1,293,293).astype(int)
-    ptycho2d_test.model_test(camera_size= 50, img_idx_array= img_idx_array, n_iter= 500, lr= 0.1)
+    # img_idx_array = np.linspace(1,293,293).astype(int)
+    # ptycho2d_test.model_test(camera_size= 50, img_idx_array= img_idx_array, n_iter= 500, lr= 0.1)
     
     # Test 2: real data
-    # centre = [0,0]
-    # img_idx_array = np.linspace(1,293,293).astype(int)
-    # ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= 50,lr= 3e-6)
-    # plt.show()
+    centre = [0,0]
+    img_idx_array = np.linspace(1,293,293).astype(int)
+    ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= 50,lr= 3e-6)
+    plt.show()
 
     # Test 3: auto shift
-    # ptycho2d_test.model_test_withoushifts(camera_size= 64, n_img= 17**2, n_iter= 1, lr= 0.045)  # 64, 17**2, 200, 0.0457
+    # ptycho2d_test.model_test_withoushifts(camera_size= 64, n_img= 17**2, n_iter= 500, lr= 0.046)  # 64, 17**2, 200, 0.0457
     # print(f'overlap rate: {ptycho2d_test.ptycho_2d_model.overlap_rate()}')
     
     # plt.figure()

@@ -27,15 +27,19 @@ class GS_algos_test(object):
         far_y   = np.abs(np.fft.fft2(x))**2 
 
         # 3. GS method solver
-        GS_method_test  = algos.GerchbergSaxton(near_y,far_y)
+        GS_method        = algos.GerchbergSaxton(near_y,far_y)
 
-        initial_est     = np.angle(x) + np.random.randn(in_dim,in_dim)*0.5  # choose initial guess close to target
-        field_img_plane = GS_method_test.iterate(initial_est=initial_est,n_iter=1000)
+        initial_est      = np.angle(x) + np.random.randn(in_dim,in_dim)*0.8  # choose initial guess close to target
+        field_real_space = GS_method.iterate(initial_est= initial_est, n_iter= 2000)
 
         print("Result correlation:")
-        x                = np.ravel(x)
-        field_img_plane  = np.ravel(field_img_plane)
-        print(np.abs( (field_img_plane.T.conj() @ x) /  (np.linalg.norm(field_img_plane)*np.linalg.norm(x)) ))
+        _x                = np.ravel(x)
+        field_real_space = np.ravel(field_real_space)
+        print(np.abs( (field_real_space.T.conj() @ _x) /  (np.linalg.norm(field_real_space)*np.linalg.norm(_x)) ))
+
+        print("Result correlation without optimize:")
+        _initial_est = np.ravel(initial_est)
+        print(np.abs( (_initial_est.T.conj() @ _x) /  (np.linalg.norm(_initial_est)*np.linalg.norm(_x)) ))
 
 
 if __name__ == '__main__':
