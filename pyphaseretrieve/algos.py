@@ -1,15 +1,20 @@
 import numpy as np
+from pyphaseretrieve.loss       import *
 from pyphaseretrieve.phaseretrieval import *
-from pyphaseretrieve.linop          import *
 
 
 class GradientDescent:
-    def __init__(self, pr_model, line_search=None, acceleration=None):
+    def __init__(self, pr_model:PhaseRetrievalBase, loss_func:LossFunction=None, line_search=None, acceleration=None):
         self.pr_model = pr_model
+        if loss_func is not None:
+            self.loss_func = loss_func
+        else:
+            self.loss_func = loss_intensity_based()
+
         self.line_search = line_search
         self.acceleration = acceleration
 
-        self.x_shape = pr_model.in_size
+        self.x_shape = pr_model.linop.in_shape
         self.current_iter = 0
         self.loss_list = []
 
@@ -18,10 +23,10 @@ class GradientDescent:
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
-            x_est = np.ones(shape=(self.x_shape,), dtype=np.complex128)
+            x_est = np.ones(shape= self.x_shape, dtype= np.complex128)
 
         for i_iter in range(n_iter):
-            loss, grad = _compute_loss_gradient(y, self.pr_model, x_est)
+            loss, grad = self.loss_func.compute_loss(y, self.pr_model, x_est)
             self.loss_list.append(loss)
             self.current_iter += 1
 
@@ -36,7 +41,6 @@ class GradientDescent:
                 actual_lr = lr
 
             x_est -= actual_lr * grad
-        
         return x_est
 
     def find_lr(self, x_est, y, descent_direction, 
@@ -68,14 +72,52 @@ class GradientDescent:
                 self.previous_grad = grad
                 self.previous_direction = -grad + beta * self.previous_direction
                 return self.previous_direction
-        
 
+class SpectralMethod:  ## only validate in 1D!!
+    def __init__(self, pr_model:PhaseRetrievalBase):
+        self.pr_model = pr_model
+        self.x_shape = pr_model.linop.in_shape
+
+    def iterate(self, y, n_iter=100, method="Lu"):       
+        y_norm = y/np.mean(y)  
+        if method == "Lu":  
+            threshold = np.maximum(1-1/y_norm, np.array(-1)) 
+        else:  
+            threshold = y_norm
+
+        x_est = np.random.randn(*self.x_shape)
+        for i_iter in range(np.minimum(n_iter, 10)):
+            x_new = self.pr_model.linop.apply(x_est)
+            x_new = threshold * x_new
+            x_new = self.pr_model.linop.applyT(x_new)
+            x_est = x_new / np.linalg.norm(x_new)
+
+        x_new = self.pr_model.linop.apply(x_est)
+        x_new = threshold * x_new
+        x_new = self.pr_model.linop.applyT(x_new)
+        corr = np.real(x_new.T.conj() @ x_est)
+        
+        if corr < 0:  
+            for i_iter in range(n_iter):
+                x_new = self.pr_model.linop.apply(x_est)
+                x_new = threshold * x_new
+                x_new = self.pr_model.linop.applyT(x_new)
+                x_new = x_new + 1.1*np.abs(corr)*x_est
+                x_est = x_new / np.linalg.norm(x_new)
+        else: 
+            for i_iter in range(n_iter - 10):
+                x_new = self.pr_model.linop.apply(x_est)
+                x_new = threshold * x_new
+                x_new = self.pr_model.linop.applyT(x_new)
+                x_est = x_new / np.linalg.norm(x_new)
+        return x_est
+        
 class GerchbergSaxton: 
     def __init__(self, near_field_intensity, far_field_intensity):
         self.amp_fourier_space = np.sqrt(far_field_intensity)   
         self.amp_real_space = np.sqrt(near_field_intensity)
 
-        self.in_size = near_field_intensity.shape
+        self.x_shape = near_field_intensity.shape
         self.lost_list = []
         self.current_iter = 0
 
@@ -83,7 +125,7 @@ class GerchbergSaxton:
         if initial_est is not None:
             phase_est = np.copy(initial_est)
         else:
-            phase_est = np.ones(shape= self.in_size, dtype= np.complex128)
+            phase_est = np.ones(shape= self.x_shape, dtype= np.complex128)
 
         field_real_space = self.amp_real_space * np.exp(1j*phase_est)
         for i_iter in range(n_iter):
@@ -98,11 +140,3 @@ class GerchbergSaxton:
             self.current_iter += 1
         
         return field_real_space
-
-def _compute_loss_gradient(y, pr_model, x_est):
-    out_field = pr_model.apply(x_est)
-    est_y = np.abs(out_field)**2
-    loss = np.sum((est_y - y)**2)  
-    grad = pr_model.applyAdjoint( (est_y - y) * out_field )
-
-    return loss, grad
