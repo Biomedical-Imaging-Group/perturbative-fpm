@@ -12,9 +12,10 @@ import matplotlib.animation as animation
 import matplotlib.patches as patches
 from scipy import interpolate
 
+from pyphaseretrieve.linop  import *
 from pyphaseretrieve        import algos
 from pyphaseretrieve        import phaseretrieval
-from pyphaseretrieve.linop  import *
+from pyphaseretrieve        import loss
 
 DAT_FILE_PATH = '/home/kshen/Ptychography_Project/Dataset/1LED/tif/' ## Local PATH
 
@@ -250,7 +251,8 @@ class test_GD_in_ptych2d(object):
         y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
 
         ## 5. GD solver
-        GD_method               = algos.GradientDescent(self.ptycho_2d_model, line_search= None, acceleration=None)
+        loss_function           = loss.loss_amplitude_based(epsilon=1e-1)
+        GD_method               = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
 
         ## 6. solve the problem
         initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
@@ -277,7 +279,6 @@ class test_GD_in_ptych2d(object):
 
         ## 2. ground truth x generating
         reconstruction_res          = self.ptycho_data.reconstruct_size
-        # reconstruction_res   = camera_size
         print(f'recontruction size: {reconstruction_res}')
 
         ## 4. ptycho2d model create
@@ -286,7 +287,8 @@ class test_GD_in_ptych2d(object):
         self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
 
         ## 5. GD solver
-        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, line_search= None, acceleration=None)
+        loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
+        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
 
         ## 6. solve the problem
         initial_est                 = np.ones(shape= (reconstruction_res,reconstruction_res), dtype= np.complex128)
@@ -296,7 +298,6 @@ class test_GD_in_ptych2d(object):
         x_est                       = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
-        # ptycho_data.crop_rendering()
         plt.figure()
         plt.imshow(img_list[int(len(img_list)/2)], cmap=cm.Greys_r)
         plt.colorbar()
@@ -306,14 +307,16 @@ class test_GD_in_ptych2d(object):
         plt.imshow(np.abs(x_est)**2, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Intensity: Reconstructed image')
+        # plt.savefig(f'AmpLoss_sweep/iter_{n_iter}/iter={n_iter},lr={lr}_intensity.png')
 
         plt.figure()
         plt.imshow(np.angle(x_est), cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Phase: Reconstruction image')
-
+        # plt.savefig(f'AmpLoss_sweep/iter_{n_iter}/iter={n_iter},lr={lr}_phase.png')
+        return x_est
     
-    def model_test_withoushifts(self, camera_size:int, n_img:int, n_iter:int, lr) -> None:
+    def model_test_withautoshifts(self, camera_size:int, n_img:int, n_iter:int, lr) -> None:
         print('Model test without shifts assignment \n----------------------')
         ## 1. use experimental setup from Laura dataset
         self.ptycho_data        = ptycho2d_Laura_dataSet(camera_size)
@@ -328,12 +331,14 @@ class test_GD_in_ptych2d(object):
         ## 3. ptycho2d model create
         probe                   = self.ptycho_data.pupil_mask
         self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe= probe, reconstruct_size= reconstruction_res, n_img= n_img)
+        print(f'overlap rate: {self.ptycho_2d_model.get_overlap_rate()}')
 
         ## 4. base on exsiting paras, generate y
         y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
 
         ## 5. GD solver
-        GD_method               = algos.GradientDescent(self.ptycho_2d_model, line_search= None, acceleration=None)
+        loss_function           = loss.loss_amplitude_based(epsilon=1e-1)
+        GD_method               = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
 
         ## 6. solve the problem
         initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
@@ -407,20 +412,22 @@ if __name__ == '__main__':
     ptycho2d_test = test_GD_in_ptych2d()
 
     # Test 1: model test
-    # img_idx_array = np.linspace(1,293,293).astype(int)
-    # ptycho2d_test.model_test(camera_size= 50, img_idx_array= img_idx_array, n_iter= 500, lr= 0.1)
+    img_idx_array = np.linspace(1,293,293).astype(int)
+    ptycho2d_test.model_test(camera_size= 50, img_idx_array= img_idx_array, n_iter= 500, lr= 0.1)
     
     # Test 2: real data
-    centre = [0,0]
-    img_idx_array = np.linspace(1,293,293).astype(int)
-    ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= 50,lr= 3e-6)
-    plt.show()
+    # centre = [-50,450]
+    # img_idx_array = np.linspace(1,293,293).astype(int)
+    # for n_iter in range(5,30,5):
+    #     for lr in np.geomspace(1e-1, 1e-4, num=4):
+    #         ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= n_iter,lr= lr)
+    # ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= 10,lr= 1e-2)
+    # plt.show()
 
     # Test 3: auto shift
-    # ptycho2d_test.model_test_withoushifts(camera_size= 64, n_img= 17**2, n_iter= 500, lr= 0.046)  # 64, 17**2, 200, 0.0457
-    # print(f'overlap rate: {ptycho2d_test.ptycho_2d_model.overlap_rate()}')
+    # ptycho2d_test.model_test_withautoshifts(camera_size= 64, n_img= 17**2, n_iter= 500, lr= 0.046)  # 64, 17**2, 200, 0.0457
     
     # plt.figure()
-    # plt.imshow(ptycho2d_test.ptycho_2d_model.get_probe_map(), cmap= cm.Greys_r)
+    # plt.imshow(ptycho2d_test.ptycho_2d_model.get_probe_overlap_map(), cmap= cm.Greys_r)
     # plt.colorbar()
     # plt.show()

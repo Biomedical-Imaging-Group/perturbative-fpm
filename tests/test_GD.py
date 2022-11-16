@@ -6,8 +6,8 @@ sys.path.append(str(Path().absolute()))
 ## === Test Start ===
 import numpy as np
 from pyphaseretrieve        import algos
-from pyphaseretrieve.linop  import *
 from pyphaseretrieve        import phaseretrieval
+from pyphaseretrieve.linop  import*
 
 
 class GD_algos_test(object):   
@@ -24,7 +24,9 @@ class GD_algos_test(object):
         # 1. LinOp Build
         in_dim  = 100
         out_dim = 800
-        pr_model = LinOpMatrix(np.random.randn(out_dim, in_dim) + 1j * np.random.randn(out_dim, in_dim))
+        linop = LinOpMatrix(np.random.randn(out_dim, in_dim) + 1j * np.random.randn(out_dim, in_dim))
+        pr_model = phaseretrieval.PhaseRetrievalBase(linop= linop)
+        
         x = self.generate_rand1d_x(in_dim)
         y = np.abs(pr_model.apply(x))**2
         print('model: in_dim: {}, out_dim: {}, oversampling ratio: {}'.format(in_dim, out_dim, out_dim/in_dim))
@@ -45,9 +47,10 @@ class GD_algos_test(object):
         x      = self.generate_rand1d_x(in_dim)
 
         # 2.Probe create
-        ptycho_radius = 250
-        sampling_grid = np.linspace(0, in_dim-1, in_dim)
-        probe = np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)  # use random mask will preform better
+        ptycho_radius = 200
+        # sampling_grid = np.abs(np.linspace(-in_dim//2, int(np.ceil(in_dim/2))-1, in_dim))
+        sampling_grid = np.abs(np.linspace(-int(np.ceil(in_dim/2)), in_dim//2, in_dim))
+        probe = (np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)) 
 
         # 3. Ptychogram create
         ptycho_1d_model = phaseretrieval.Ptychography1d(probe,n_img=10)
@@ -57,7 +60,7 @@ class GD_algos_test(object):
 
         # 4. GD method solver
         GD_method = algos.GradientDescent(ptycho_1d_model, line_search= None, acceleration=None)
-        x_est = GD_method.iterate(y=y,initial_est=None,n_iter=1000,lr=0.008)
+        x_est = GD_method.iterate(y=y,initial_est=None,n_iter=1000,lr=0.0005)
 
         # 5. print final correlation
         print("Result correlation:")
@@ -72,8 +75,8 @@ class GD_algos_test(object):
 
         # 2.Probe create
         ptycho_radius = 250
-        sampling_grid = np.linspace(0, in_dim-1, in_dim)
-        probe = (np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)) 
+        sampling_grid = np.abs(np.linspace(-in_dim//2, int(np.ceil(in_dim/2))-1, in_dim))
+        probe = np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)
 
         # 3. Ptychogram create
         ptycho_1d_model = phaseretrieval.Ptychography1d(probe,n_img=10)
@@ -83,9 +86,10 @@ class GD_algos_test(object):
 
         # 4. GD method solver
         GD_method = algos.GradientDescent(ptycho_1d_model, line_search= None, acceleration=None)
-        
-        x_spec = ptycho_1d_model.spectralinit(y=y)
-        x_est = GD_method.iterate(y=y,initial_est=x_spec,n_iter=3000,lr=0.1)
+        Spec_method = algos.SpectralMethod(pr_model= ptycho_1d_model)
+
+        x_spec = Spec_method.iterate(y= y)
+        x_est = GD_method.iterate(y=y,initial_est=x_spec,n_iter=3000,lr=0.015)
 
         # 5. print final correlation
         print("Result correlation:")
