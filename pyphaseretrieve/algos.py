@@ -18,8 +18,7 @@ class GradientDescent:
         self.current_iter = 0
         self.loss_list = []
 
-    def iterate(self, y, initial_est=None, 
-                n_iter=100, lr=1e-1):
+    def iterate(self, y, initial_est=None, n_iter=100, lr=1e-1):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -31,7 +30,7 @@ class GradientDescent:
             self.current_iter += 1
 
             if self.acceleration is not None:
-                descent_direction = self.find_dir(x_est, y, grad, self.acceleration)
+                descent_direction = self.find_dir(x_est, y, grad)
             else:
                 descent_direction = -grad
 
@@ -40,24 +39,45 @@ class GradientDescent:
             else:
                 actual_lr = lr
 
-            x_est -= actual_lr * grad
+            x_est += actual_lr * descent_direction
         return x_est
 
     def find_lr(self, x_est, y, descent_direction, 
-                    current_grad, initial_loss, initial_lr=1, c=0.9, tau=0.5):
+                    current_grad, initial_loss, initial_lr=1, c1=0.1, c2=0.4, tau=0.9, strong_condition:bool= False):
         lr = initial_lr
         m = np.real(current_grad.ravel().T.conj() @ descent_direction.ravel())
         if m >= 0:
             print("There may be a sign error in the computation of the descent direction.")
-        new_x_est = x_est + lr * descent_direction
-        new_y_est = self.pr_model.apply(new_x_est)
-        new_loss = np.sum((new_y_est-y)**2)
-        while new_loss > initial_loss + lr * c * m:
-            lr = tau * lr
+
+        while True:
             new_x_est = x_est + lr * descent_direction
-            new_y_est = self.pr_model.apply(new_x_est)
+            new_y_est = np.abs(self.pr_model.apply(new_x_est))**2
             new_loss = np.sum((new_y_est-y)**2)
+            if new_loss <= initial_loss + lr * c1 * m:
+                if strong_condition:
+                    _, new_grad = self.loss_func.compute_loss(y, self.pr_model, new_x_est)
+                    print(np.abs(new_grad.ravel().T.conj()@descent_direction.ravel()) )
+                    print(c2*np.abs(m))
+                    i_iter += 1
+                    if np.abs(new_grad.ravel().T.conj()@descent_direction.ravel()) <= c2*np.abs(m):
+                        break
+                else:
+                    break
+            lr = tau * lr
         return lr
+        # if strong_condition:
+        #     pass
+        # else:
+        #     """backtracking line search"""
+        #     new_x_est = x_est + lr * descent_direction
+        #     new_y_est = np.abs(self.pr_model.apply(new_x_est))**2
+        #     new_loss = np.sum((new_y_est-y)**2)
+        #     while new_loss > initial_loss + lr * c1 * m:
+        #         lr = tau * lr
+        #         new_x_est = x_est + lr * descent_direction
+        #         new_y_est = np.abs(self.pr_model.apply(new_x_est))**2
+        #         new_loss = np.sum((new_y_est-y)**2)
+        #     return lr
 
     def find_dir(self, x_est, y, grad):
         if self.acceleration == "conjugate gradient":
@@ -69,6 +89,8 @@ class GradientDescent:
                 beta = np.maximum(0, np.real(grad.ravel().conj().T @ 
                     (grad.ravel() - self.previous_grad.ravel()) / 
                     (self.previous_grad.ravel().conj().T @ self.previous_grad.ravel()))) #TOCHECK
+                if beta < 0:
+                    print('beta<0')
                 self.previous_grad = grad
                 self.previous_direction = -grad + beta * self.previous_direction
                 return self.previous_direction
@@ -111,7 +133,98 @@ class SpectralMethod:  ## only validate in 1D!!
                 x_new = self.pr_model.linop.applyT(x_new)
                 x_est = x_new / np.linalg.norm(x_new)
         return x_est
+    
+class PerturbativePhase:
+    def __init__(self, pr_model:PhaseRetrievalBase, loss_func:LossFunction=None):
+        self.pr_model = pr_model
+        if loss_func is not None:
+            self.loss_func = loss_func
+        else:
+            self.loss_func = loss_intensity_based()
+
+        self.x_shape = pr_model.linop.in_shape
+        self.current_iter = 0
+        self.loss_list = []
+
+    def iterate_CGD(self, y, initial_est=None, n_iter=100, CGD_n_iter=20):
+        if initial_est is not None:
+            x_est = np.copy(initial_est)
+        else:
+            x_est = np.ones(shape= self.x_shape, dtype= np.complex128)
+
+        for i_iter in range(n_iter):
+            loss = self.loss_func.compute_loss(y, self.pr_model, x_est, compute_grad= False)
+            self.loss_list.append(loss)
+            self.current_iter += 1
+
+            out_field = self.pr_model.apply(x_est)
+            y_est = np.abs(out_field)**2
+
+            perturbative_model = PhaseRetrievalBase(RealPartExpandOp (2 * LinOpMul(out_field.conj()) @ self.pr_model.linop))
+            
+            expand_shape = np.array(self.pr_model.linop.in_shape)
+            expand_shape[0] = expand_shape[0]*2
+            epsilon_expand = np.zeros(tuple(expand_shape)).astype(np.complex128)
+            res = (perturbative_model.applyT(perturbative_model.apply(epsilon_expand))) - perturbative_model.applyT(y - y_est)
+            descent_direction = -res
+            for cgd_i_iter in range(CGD_n_iter):
+                alpha = (res.ravel().T.conj() @ res.ravel())/(descent_direction.ravel().T.conj() @ perturbative_model.applyT(perturbative_model.apply(descent_direction)).ravel())
+                epsilon_expand = epsilon_expand + alpha*descent_direction
+                r_new = res + alpha * (perturbative_model.applyT(perturbative_model.apply(descent_direction)))
+                descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
+                res = r_new
+            epsilon = epsilon_expand[:self.pr_model.linop.in_shape[0]] + epsilon_expand[self.pr_model.linop.in_shape[0]:]* 1j
+
+            x_est += epsilon
+        return x_est
         
+    def iterate_GD(self, y, initial_est=None, n_iter=100, GD_n_iter=20, lr=1e-1, line_search:bool= False):
+        if initial_est is not None:
+            x_est = np.copy(initial_est)
+        else:
+            x_est = np.ones(shape= self.x_shape, dtype= np.complex128)
+
+        for i_iter in range(n_iter):
+            loss = self.loss_func.compute_loss(y, self.pr_model, x_est, compute_grad= False)
+            self.loss_list.append(loss)
+            self.current_iter += 1
+
+            out_field = self.pr_model.apply(x_est)
+            y_est = np.abs(out_field)**2
+
+            perturbative_model = PhaseRetrievalBase(2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.pr_model.linop)
+            
+            epsilon = np.zeros(self.pr_model.linop.in_shape).astype(np.complex128)
+            for gd_i_iter in range(GD_n_iter):
+                grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))
+
+                if line_search is not None:
+                    actual_lr = self.find_lr(x_est, y - y_est, perturbative_model, -grad, grad, loss, initial_lr=lr)
+                else:
+                    actual_lr = lr
+                print(actual_lr)
+                    
+                epsilon = epsilon - actual_lr*grad
+            print(self.current_iter)
+
+            x_est += epsilon
+        return x_est
+
+    def find_lr(self, x_est, y, perturbative_model, descent_direction, 
+                    current_grad, initial_loss, initial_lr=1, c=0.9, tau=0.5):
+        lr = initial_lr
+        m = np.real(current_grad.ravel().T.conj() @ descent_direction.ravel())
+        if m >= 0:
+            print("There may be a sign error in the computation of the descent direction.")
+        while True:
+            new_x_est = x_est + lr * descent_direction
+            new_y_est = np.abs(perturbative_model.apply(new_x_est))**2
+            new_loss = np.sum((new_y_est - y)**2)
+            if new_loss <= initial_loss + lr * c * m:
+                break
+            lr = tau * lr
+        return lr
+
 class GerchbergSaxton: 
     def __init__(self, near_field_intensity, far_field_intensity):
         self.amp_fourier_space = np.sqrt(far_field_intensity)   

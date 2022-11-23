@@ -32,8 +32,8 @@ class GD_algos_test(object):
         print('model: in_dim: {}, out_dim: {}, oversampling ratio: {}'.format(in_dim, out_dim, out_dim/in_dim))
 
         # 2. GD method solver
-        rand_GD_method = algos.GradientDescent(pr_model, line_search= None, acceleration=None)
-        x_est = rand_GD_method.iterate(y=y,initial_est=None,n_iter=1000,lr=0.0000001)
+        rand_GD_method = algos.GradientDescent(pr_model, line_search= True, acceleration= None)
+        x_est = rand_GD_method.iterate(y=y,initial_est=None,n_iter=500)
 
         # 3. print final correlation
         print("Result correlation:")
@@ -48,19 +48,18 @@ class GD_algos_test(object):
 
         # 2.Probe create
         ptycho_radius = 200
-        # sampling_grid = np.abs(np.linspace(-in_dim//2, int(np.ceil(in_dim/2))-1, in_dim))
         sampling_grid = np.abs(np.linspace(-int(np.ceil(in_dim/2)), in_dim//2, in_dim))
         probe = (np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)) 
 
         # 3. Ptychogram create
-        ptycho_1d_model = phaseretrieval.Ptychography1d(probe,n_img=10)
-        print(f"The overlap is {ptycho_1d_model.overlap_rate()}")
+        pr_model = phaseretrieval.Ptychography1d(probe,n_img=10)
+        print(f"The overlap is {pr_model.overlap_rate()}")
 
-        y = np.abs(ptycho_1d_model.apply(x))**2
+        y = np.abs(pr_model.apply(x))**2
 
         # 4. GD method solver
-        GD_method = algos.GradientDescent(ptycho_1d_model, line_search= None, acceleration=None)
-        x_est = GD_method.iterate(y=y,initial_est=None,n_iter=1000,lr=0.0005)
+        GD_method = algos.GradientDescent(pr_model, line_search= True, acceleration= None)
+        x_est = GD_method.iterate(y=y,initial_est=None,n_iter=1000)
 
         # 5. print final correlation
         print("Result correlation:")
@@ -79,17 +78,17 @@ class GD_algos_test(object):
         probe = np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)
 
         # 3. Ptychogram create
-        ptycho_1d_model = phaseretrieval.Ptychography1d(probe,n_img=10)
-        print(f"The overlap is {ptycho_1d_model.overlap_rate()}")
+        pr_model = phaseretrieval.Ptychography1d(probe,n_img=10)
+        print(f"The overlap is {pr_model.overlap_rate()}")
 
-        y = np.abs(ptycho_1d_model.apply(x))**2
+        y = np.abs(pr_model.apply(x))**2
 
         # 4. GD method solver
-        GD_method = algos.GradientDescent(ptycho_1d_model, line_search= None, acceleration=None)
-        Spec_method = algos.SpectralMethod(pr_model= ptycho_1d_model)
+        GD_method = algos.GradientDescent(pr_model, line_search= True, acceleration="conjugate gradient")
+        Spec_method = algos.SpectralMethod(pr_model= pr_model)
 
         x_spec = Spec_method.iterate(y= y)
-        x_est = GD_method.iterate(y=y,initial_est=x_spec,n_iter=3000,lr=0.015)
+        x_est = GD_method.iterate(y=y,initial_est=x_spec,n_iter=3000, lr=1)
 
         # 5. print final correlation
         print("Result correlation:")
@@ -99,8 +98,8 @@ class GD_algos_test(object):
 if __name__ == '__main__':
     GD_test = GD_algos_test()
 
-    GD_test.test_rand1d_case()
-    print('---------------')
-    GD_test.test_Ptychography1d_case_without_spectral()
-    print('---------------')
+    # GD_test.test_rand1d_case()
+    # print('---------------')
+    # GD_test.test_Ptychography1d_case_without_spectral()
+    # print('---------------')
     GD_test.test_Ptychography1d_case_with_spectral()
