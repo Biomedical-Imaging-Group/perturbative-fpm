@@ -58,7 +58,7 @@ class GD_algos_test(object):
         y = np.abs(pr_model.apply(x))**2
 
         # 4. GD method solver
-        GD_method = algos.GradientDescent(pr_model, line_search= True, acceleration= None)
+        GD_method = algos.GradientDescent(pr_model, line_search= True, acceleration= "conjugate gradient")
         x_est = GD_method.iterate(y=y,initial_est=None,n_iter=1000)
 
         # 5. print final correlation
@@ -88,7 +88,7 @@ class GD_algos_test(object):
         Spec_method = algos.SpectralMethod(pr_model= pr_model)
 
         x_spec = Spec_method.iterate(y= y)
-        x_est = GD_method.iterate(y=y,initial_est=x_spec,n_iter=3000, lr=1)
+        x_est = GD_method.iterate(y=y,initial_est=x_spec,n_iter=1000)
 
         # 5. print final correlation
         print("Result correlation:")
@@ -98,8 +98,8 @@ class GD_algos_test(object):
 if __name__ == '__main__':
     GD_test = GD_algos_test()
 
-    # GD_test.test_rand1d_case()
-    # print('---------------')
-    # GD_test.test_Ptychography1d_case_without_spectral()
-    # print('---------------')
+    GD_test.test_rand1d_case()
+    print('---------------')
+    GD_test.test_Ptychography1d_case_without_spectral()
+    print('---------------')
     GD_test.test_Ptychography1d_case_with_spectral()

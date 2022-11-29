@@ -8,7 +8,6 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-import matplotlib.animation as animation
 import matplotlib.patches as patches
 from scipy import interpolate
 
@@ -17,7 +16,7 @@ from pyphaseretrieve        import algos
 from pyphaseretrieve        import phaseretrieval
 from pyphaseretrieve        import loss
 
-DAT_FILE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/1LED/tif/' ## Local PATH
+DAT_FILE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/DPC_dataset/' ## Local PATH
 
 
 ## ================================================== Dataset  ====================================================
@@ -26,8 +25,8 @@ class ptycho2d_Laura_dataSet(object):
     def __init__(self, camera_size:int) -> None:
         ## Experiment Setup Parameters Setting (distance and length unit: um)
         # Optical system
-        self.wave_lambda        = 0.6292
-        self.NA                 = 0.1
+        self.wave_lambda        = 0.514
+        self.NA                 = 0.2
         # Camera system
         self.camera_size        = camera_size
         self.mag                = 8.1485
@@ -36,9 +35,8 @@ class ptycho2d_Laura_dataSet(object):
         self.CAMERA_V_RES       = 2160
         # LED system
         self.led_pitch          = 4000
-        self.led_d_z            = 67500
+        self.led_d_z            = 64000
         self.led_dia_number     = 19
-
         ## generate experimental setup
         self.experimentSetup()
 
@@ -47,11 +45,9 @@ class ptycho2d_Laura_dataSet(object):
         self.pupil_mask            = self.get_pupil_mask()
 
         self.NA_illu               = self.get_illumnationNA()
-        self.reconstruct_size      = self.get_reconstruction_size()
 
         self.total_shifts_h_map ,self.total_shifts_v_map , self.total_shifts_pair = self.get_shiftsMap_shiftsPairs()
     
-
     # ----------------------- methods -----------------------
     # -------------------------------------------------------
     def get_fourierResolution(self) -> tuple([float, float]):
@@ -74,8 +70,9 @@ class ptycho2d_Laura_dataSet(object):
         return np.fft.fftshift(pupil_mask)
 
     def get_illumnationNA(self) -> float:
-        led_r_number    = math.floor(self.led_dia_number/2)
-        led_r           = led_r_number * self.led_pitch
+        # led_r_number    = math.floor(self.led_dia_number/2)
+        # led_r           = led_r_number * self.led_pitch
+        led_r           = 3 * self.led_pitch
         illuminationNA  = led_r/math.sqrt(self.led_d_z**2+led_r**2)
 
         return illuminationNA
@@ -165,6 +162,8 @@ class ptycho2d_Laura_dataSet(object):
                     plt.imshow(img_background, cmap=cm.Greys_r)
                     plt.colorbar()
                     plt.title('Background image')
+            else:
+                img_background = 0
 
             y = None
             for _, _crop_img in enumerate(img_list):
@@ -220,138 +219,67 @@ class ptycho2d_Laura_dataSet(object):
 
 ## ================================================== Test Class ==================================================
 ## ================================================================================================================
-class test_GD_in_ptych2d(object):
+class DPC_test(object):
     def __init__(self) -> None:
-        print('Ptycho2D test with GD Start\n======================')
         pass
 
-    def generate_rand2d_x(self, in_dim, scale=0.5):
-        x = (np.random.randn(in_dim, in_dim) + 1j * np.random.randn(in_dim, in_dim))
-        return x
-
-
-    def model_test(self, camera_size:int, img_idx_array, n_iter:int, lr):
-        print('Model test \n----------------------')
-        ## 1. use experimental setup from Laura dataset
-        self.ptycho_data        = ptycho2d_Laura_dataSet(camera_size)
-
-        ## 2. ground truth x generating
-        reconstruction_res      = self.ptycho_data.get_reconstruction_size()
-        print(f'recontruction size: {reconstruction_res}')
-
-        x                       = self.generate_rand2d_x(reconstruction_res)
-        x_ft                    = np.fft.fft2(x, norm="ortho")
-        
-        ## 3. ptycho2d model create
-        probe                   = self.ptycho_data.get_pupil_mask()
-        _, _, shifts_pair       = self.ptycho_data.select_image(img_idx_array, load_img_or_not=False)
-        self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe = probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
-
-        ## 4. base on exsiting paras, generate y
-        y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
-
-        ## 5. GD solver
-        loss_function           = loss.loss_amplitude_based(epsilon=1e-1)
-        GD_method               = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
-
-        ## 6. solve the problem
-        initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
-        initial_est             = np.fft.fft2(initial_est, norm="ortho")
-
-        x_est                   = GD_method.iterate(y = y, initial_est = initial_est, n_iter = n_iter, lr = lr)
-        x_est                   = np.fft.ifft2(x_est, norm="ortho")
-
-        ## 7. result
-        print("Result correlation:")
-        _x      = np.ravel(x)
-        _x_est  = np.ravel(x_est)
-        print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
-    
-
-    def real_data_test(self, camera_size:int, img_idx_array, n_iter:int, lr, centre:list= [0,0]):
+    def DPC_img(self, camera_size, n_iter= 1, GD_n_iter= 5,lr= 1):
         print('REAL dataset test \n----------------------')
         ## 1. use experimental setup from Laura dataset
-        self.ptycho_data            = ptycho2d_Laura_dataSet(camera_size)
+        self.ptycho_data    = ptycho2d_Laura_dataSet(camera_size)
+        bright_LED_map      = self.ptycho_data.get_bright_field_LED_map()
+        bright_LED_array    = bright_LED_map[bright_LED_map>0]
 
         ## 2. ground truth x generating
-        reconstruction_res          = self.ptycho_data.reconstruct_size
+        reconstruction_res          = camera_size
+        # reconstruction_res          = self.ptycho_data.get_reconstruction_size()
         print(f'recontruction size: {reconstruction_res}')
 
         ## 4. ptycho2d model create
+        img_idx_array               = bright_LED_array
         probe                       = self.ptycho_data.get_pupil_mask()
-        y, img_list, shifts_pair    = self.ptycho_data.select_image(img_idx_array, centre= centre)
+        y, img_list, shifts_pair    = self.ptycho_data.select_image(img_idx_array, remove_background= False)
         self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
 
-        ## 5. GD solver
-        loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
-        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
+        sum_bright_img = np.uint32(np.zeros_like(img_list[0]))
+        for idx in range(len(img_list)):
+            sum_bright_img += img_list[idx]
+        mean_bright_img = np.sum(sum_bright_img)/len(img_list)
+        # print(mean_bright_img)
+        ## 5. PPR solver
+        initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)
+        # initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)  + 1j * np.random.randn(reconstruction_res, reconstruction_res)
+        initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
-        ## 6. solve the problem
-        initial_est                 = np.ones(shape= (reconstruction_res,reconstruction_res), dtype= np.complex128)
-        initial_est                 = np.fft.fft2(initial_est, norm="ortho")
-        
-        x_est                       = GD_method.iterate(y=y, initial_est=initial_est, n_iter = n_iter, lr = lr) 
-        x_est                       = np.fft.ifft2(x_est, norm="ortho")
+        ppr_method              = algos.PerturbativePhase(self.ptycho_2d_model)
+        x_est                   = ppr_method.iterate_GD(y = y, initial_est = initial_est, n_iter = n_iter, GD_n_iter= GD_n_iter, lr = lr)
+        x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
+        plt.figure()
+        plt.imshow(sum_bright_img, cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Sum Bright Field Image')
+        plt.savefig('_recon_img/DPC_ Sum Bright Field Image.png')
+
         plt.figure()
         plt.imshow(img_list[int(len(img_list)/2)], cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Center Bright Field Image')
+        plt.savefig('_recon_img/DPC_Center Bright Field Image.png')
 
         plt.figure()
         plt.imshow(np.abs(x_est)**2, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Intensity: Reconstructed image')
-        # plt.savefig(f'AmpLoss_sweep/iter_{n_iter}/iter={n_iter},lr={lr}_intensity.png')
+        plt.savefig('_recon_img/DPC_Intensity: Reconstructed image.png')
 
         plt.figure()
         plt.imshow(np.angle(x_est), cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Phase: Reconstruction image')
-        # plt.savefig(f'AmpLoss_sweep/iter_{n_iter}/iter={n_iter},lr={lr}_phase.png')
+        plt.savefig('_recon_img/DPC_Phase: Reconstruction image.png')
         return x_est
-    
-    def model_test_withautoshifts(self, camera_size:int, n_img:int, n_iter:int, lr) -> None:
-        print('Model test without shifts assignment \n----------------------')
-        ## 1. use experimental setup from Laura dataset
-        self.ptycho_data        = ptycho2d_Laura_dataSet(camera_size)
-
-        ## 2. ground truth x generating
-        reconstruction_res      = self.ptycho_data.get_reconstruction_size()
-        print(f'recontruction size: {reconstruction_res}')
-
-        x                       = self.generate_rand2d_x(reconstruction_res)
-        x_ft                    = np.fft.fft2(x, norm="ortho")
-
-        ## 3. ptycho2d model create
-        probe                   = self.ptycho_data.pupil_mask
-        self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe= probe, reconstruct_size= reconstruction_res, n_img= n_img)
-        print(f'overlap rate: {self.ptycho_2d_model.get_overlap_rate()}')
-
-        ## 4. base on exsiting paras, generate y
-        y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
-
-        ## 5. GD solver
-        loss_function           = loss.loss_amplitude_based(epsilon=1e-1)
-        GD_method               = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
-
-        ## 6. solve the problem
-        initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
-        initial_est             = np.fft.fft2(initial_est, norm="ortho")
-
-        x_est                   = GD_method.iterate(y= y, initial_est= initial_est, n_iter= n_iter, lr= lr)
-        x_est                   = np.fft.ifft2(x_est, norm="ortho")
-
-        ## 7. result
-        print("Result correlation:")
-        _x      = np.ravel(x)
-        _x_est  = np.ravel(x_est)
-        print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
-
-        print("Result without optimize correlation:")
-        _x_init  = np.ravel(np.fft.ifft2(initial_est, norm="ortho"))
-        print(np.abs( (_x_init.T.conj() @ _x) /  (np.linalg.norm(_x_init)*np.linalg.norm(_x)) ))
 
 ## ================================================== END Test Class ==================================================
 ## ====================================================================================================================
@@ -373,57 +301,12 @@ def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
     return(rho, phi)
-
-def demo_dataset():
-    start_img = 120
-    end_img   = 170
-
-    file_path = DAT_FILE_PATH
-    print('image loading...')
-    img_list = [] 
-    for i in range(start_img,end_img):
-        file_name = str('ILED_{0:04}.tif'.format(i))
-        img = plt.imread(file_path+file_name)
-        img_list.append(img)
-    animation_show(img_list, data_range=[start_img,end_img])
-
-def animation_show(img_list:list, data_range = None):
-    number_of_img = len(img_list)
-    frames = []
-    fig = plt.figure()
-    for idx in range(number_of_img):
-        frames.append([plt.imshow(img_list[idx], cmap=cm.Greys_r, animated=True)])
-    print('rendering...')
-    ani = animation.ArtistAnimation(fig, frames, interval=200, blit=True,repeat_delay=10000)
-    if data_range:
-        range_map = {'start':data_range[0],'end':data_range[1]}
-        plt.title('Data image from {start} to {end}'.format_map(range_map))
-    plt.show()
 ## ============ functions ============
 
 
 
 if __name__ == '__main__':
-    ## Test Start
-    ptycho2d_test = test_GD_in_ptych2d()
 
-    # Test 1: model test
-    # img_idx_array = np.linspace(1,293,293).astype(int)
-    # ptycho2d_test.model_test(camera_size= 50, img_idx_array= img_idx_array, n_iter= 500, lr= 0.1)
+    DPC_obj = DPC_test()
+    DPC_obj.DPC_img(camera_size= 256, n_iter= 1, GD_n_iter= 3,lr= 1e-2)
     
-    # Test 2: real data
-    centre = [-50,450]
-    img_idx_array = np.linspace(1,293,293).astype(int)
-    # for n_iter in range(5,30,5):
-    #     for lr in np.geomspace(1e-1, 1e-4, num=4):
-    #         ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= n_iter,lr= lr)
-    ptycho2d_test.real_data_test(camera_size= 256, img_idx_array= img_idx_array, centre= centre, n_iter= 10,lr= 1e-2)
-    plt.show()
-
-    # Test 3: auto shift
-    # ptycho2d_test.model_test_withautoshifts(camera_size= 64, n_img= 17**2, n_iter= 500, lr= 0.046)  # 64, 17**2, 200, 0.0457
-    
-    # plt.figure()
-    # plt.imshow(ptycho2d_test.ptycho_2d_model.get_probe_overlap_map(), cmap= cm.Greys_r)
-    # plt.colorbar()
-    # plt.show()
