@@ -14,7 +14,7 @@ class loss_intensity_based(LossFunction):
     def __init__(self):
         pass
 
-    def compute_loss(self, y, pr_model, x_est, compute_grad:bool = True):
+    def compute_loss(self, y, pr_model, x_est, compute_grad:bool= True):
         out_field = pr_model.apply(x_est)
         y_est = np.abs(out_field)**2
         loss = np.sum((y_est - y)**2)  
@@ -28,7 +28,7 @@ class loss_amplitude_based(LossFunction):
     def __init__(self, epsilon= 0):
         self.epsilon = epsilon
 
-    def compute_loss(self, y, pr_model, x_est, compute_grad:bool = True):
+    def compute_loss(self, y, pr_model, x_est, compute_grad:bool= True):
         out_field = pr_model.apply(x_est)
         y_est = np.abs(out_field)**2
         loss = np.sum((np.sqrt(y_est) - np.sqrt(y))**2)  

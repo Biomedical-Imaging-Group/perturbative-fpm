@@ -1,7 +1,6 @@
 from abc import abstractmethod
 
 ## Base class
-
 class BaseLinOp:
     def __init__(self):
         self.in_shape:tuple

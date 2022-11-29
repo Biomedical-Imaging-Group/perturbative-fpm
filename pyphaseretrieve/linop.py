@@ -1,5 +1,4 @@
 import numpy as np
-from typing import List
 from pyphaseretrieve.base_linop import BaseLinOp
 
 ## 1D classes
