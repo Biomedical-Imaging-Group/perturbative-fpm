@@ -13,7 +13,7 @@ class PhaseRetrievalBase:
         return self.linop.applyT(x)
 
 class Ptychography1d(PhaseRetrievalBase):
-    def __init__(self, probe:np.ndarray, shifts:np.ndarray=None, n_img:int=10):
+    def __init__(self, probe, shifts:np.ndarray=None, n_img:int=10):
         self.probe = probe
         self.probe_shape = probe.shape
 
@@ -57,7 +57,7 @@ class Ptychography1d(PhaseRetrievalBase):
         return overlap
 
 class FourierPtychography2d(PhaseRetrievalBase):
-    def __init__(self, probe:np.ndarray, shifts_pair:np.ndarray= None, reconstruct_size:int= None, n_img:int= 25):
+    def __init__(self, probe, shifts_pair:np.ndarray= None, reconstruct_size:int= None, n_img:int= 25):
         """shifts_pair is defined as [v_shifts,h_shifts]"""
         self.probe = probe
         self.probe_shape = probe.shape

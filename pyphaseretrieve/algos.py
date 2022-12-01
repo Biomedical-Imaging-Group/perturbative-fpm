@@ -1,11 +1,10 @@
 import numpy as np
-import cupy as cp
 from pyphaseretrieve.loss       import *
 from pyphaseretrieve.phaseretrieval import *
 
 
 class GradientDescent:
-    def __init__(self, pr_model:PhaseRetrievalBase, loss_func:LossFunction=None, line_search=None, acceleration=None, GPU_device:bool= False):
+    def __init__(self, pr_model:PhaseRetrievalBase, loss_func:LossFunction=None, line_search=None, acceleration=None):
         self.pr_model = pr_model
         if loss_func is not None:
             self.loss_func = loss_func
@@ -19,17 +18,11 @@ class GradientDescent:
         self.current_iter = 0
         self.loss_list = []
 
-        self.GPU_device = GPU_device
-
     def iterate(self, y, initial_est=None, n_iter=100, lr=1) -> np.ndarray:
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
             x_est = np.ones(shape= self.x_shape, dtype= np.complex128)
-
-        if self.GPU_device:
-            x_est = cp.array(x_est)
-            y = cp.array(y)
 
         for i_iter in range(n_iter):
             loss, grad = self.loss_func.compute_loss(y, self.pr_model, x_est)
@@ -45,9 +38,10 @@ class GradientDescent:
                 actual_lr = self.find_lr(x_est, y, descent_direction, grad, loss, initial_lr=lr)
             else:
                 actual_lr = lr
+            print(self.current_iter)
 
             x_est += actual_lr * descent_direction
-        return x_est if isinstance(x_est, np.ndarray) else np.array(x_est.get())
+        return x_est 
 
     def find_lr(self, x_est, y, descent_direction, 
                     current_grad, initial_loss, initial_lr=1, c=0.9, tau=0.5):
@@ -83,14 +77,18 @@ class SpectralMethod:  ## only validate in 1D!!
         self.pr_model = pr_model
         self.x_shape = pr_model.linop.in_shape
 
-    def iterate(self, y, n_iter=100, method="Lu"):       
+    def iterate(self, y, initial_est= None, n_iter=100, method="Lu"):       
         y_norm = y/np.mean(y)  
         if method == "Lu":  
-            threshold = np.maximum(1-1/y_norm, np.array(-1)) 
+            threshold = np.maximum(1-1/y_norm, -1) 
         else:  
             threshold = y_norm
 
-        x_est = np.random.randn(*self.x_shape)
+        if initial_est is not None:
+            x_est = np.copy(initial_est)
+        else:
+            x_est = np.random.randn(*self.x_shape)
+
         for i_iter in range(np.minimum(n_iter, 10)):
             x_new = self.pr_model.linop.apply(x_est)
             x_new = threshold * x_new
@@ -100,7 +98,7 @@ class SpectralMethod:  ## only validate in 1D!!
         x_new = self.pr_model.linop.apply(x_est)
         x_new = threshold * x_new
         x_new = self.pr_model.linop.applyT(x_new)
-        corr = np.real(x_new.T.conj() @ x_est)
+        corr = np.real(x_new.ravel().T.conj() @ x_est.ravel())
         
         if corr < 0:  
             for i_iter in range(n_iter):
@@ -146,7 +144,7 @@ class PerturbativePhase:
 
             perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.pr_model.linop
             
-            epsilon = np.zeros(self.pr_model.linop.in_shape).astype(np.complex128)
+            epsilon = np.zeros_like(x_est)
             for gd_i_iter in range(GD_n_iter):
                 grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
                 epsilon = epsilon - lr*grad
@@ -171,9 +169,8 @@ class PerturbativePhase:
 
             perturbative_model = RealPartExpandOp (2 * LinOpMul(out_field.conj()) @ self.pr_model.linop)
             
-            expand_shape = np.array(self.pr_model.linop.in_shape)
-            expand_shape[0] = expand_shape[0]*2
-            epsilon_expand = np.zeros(tuple(expand_shape)).astype(np.complex128)
+            epsilon_expand = np.zeros_like(x_est)
+            epsilon_expand = np.repeat(epsilon_expand, repeats=2, axis=0)
             res = (perturbative_model.applyT(perturbative_model.apply(epsilon_expand))) - perturbative_model.applyT(y - y_est)
             descent_direction = -res
             for cgd_i_iter in range(CGD_n_iter):
@@ -183,6 +180,7 @@ class PerturbativePhase:
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
             epsilon = epsilon_expand[:self.pr_model.linop.in_shape[0]] + epsilon_expand[self.pr_model.linop.in_shape[0]:]* 1j
+            print(self.current_iter)
 
             x_est += epsilon
         return x_est

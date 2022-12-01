@@ -243,8 +243,9 @@ class StackLinOp(BaseLinOp):
 
     def applyT(self, x):       
         current_idx = 0
-        res = np.zeros(self.in_shape).astype(np.complex128)
-        for linop in self.LinOpList:
+        for idx, linop in enumerate(self.LinOpList):
+            if idx == 0:
+                res = linop.applyT(x[current_idx:current_idx+linop.out_shape[0]])
             res += linop.applyT(x[current_idx:current_idx+linop.out_shape[0]])
             current_idx += (linop.out_shape[0] if linop.out_shape[0]>0 else self.in_shape[0])
         return res
