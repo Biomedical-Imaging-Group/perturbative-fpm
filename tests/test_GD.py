@@ -5,6 +5,7 @@ sys.path.append(str(Path().absolute()))
 
 ## === Test Start ===
 import numpy as np
+import time
 from pyphaseretrieve        import algos
 from pyphaseretrieve        import phaseretrieval
 from pyphaseretrieve.linop  import*
@@ -22,8 +23,8 @@ class GD_algos_test(object):
         ## Random matrix case
         print('Test: Random matrix case')
         # 1. LinOp Build
-        in_dim  = 100
-        out_dim = 800
+        in_dim  = 800
+        out_dim = 16000
         linop = LinOpMatrix(np.random.randn(out_dim, in_dim) + 1j * np.random.randn(out_dim, in_dim))
         pr_model = phaseretrieval.PhaseRetrievalBase(linop= linop)
         
@@ -69,11 +70,11 @@ class GD_algos_test(object):
         ## 1D ptychography
         print('Test: 1D ptycho case WITH spectral method')
         # 1. new X
-        in_dim = 800
+        in_dim = 12000
         x      = self.generate_rand1d_x(in_dim)
 
         # 2.Probe create
-        ptycho_radius = 250
+        ptycho_radius = 3300
         sampling_grid = np.abs(np.linspace(-in_dim//2, int(np.ceil(in_dim/2))-1, in_dim))
         probe = np.ones(in_dim,).astype(np.complex128) * (sampling_grid < ptycho_radius)
 

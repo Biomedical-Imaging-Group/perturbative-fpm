@@ -260,7 +260,7 @@ class DPC_test(object):
         plt.imshow(sum_bright_img, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Sum Bright Field Image')
-        plt.savefig('_recon_img/DPC_ Sum Bright Field Image.png')
+        plt.savefig('_recon_img/DPC_Sum Bright Field Image.png')
 
         plt.figure()
         plt.imshow(img_list[int(len(img_list)/2)], cmap=cm.Greys_r)
@@ -308,5 +308,5 @@ def cart2pol(x, y):
 if __name__ == '__main__':
 
     DPC_obj = DPC_test()
-    DPC_obj.DPC_img(camera_size= 256, n_iter= 1, GD_n_iter= 3,lr= 1e-2)
+    DPC_obj.DPC_img(camera_size= 256, n_iter= 1, GD_n_iter= 3,lr= 1e-4)
     
