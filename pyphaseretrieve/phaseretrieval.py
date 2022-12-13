@@ -46,7 +46,7 @@ class Ptychography1d(PhaseRetrievalBase):
     def get_probe_overlap_array(self) -> np.ndarray:
         overlap_img = np.zeros(shape= self.probe_shape)
         for i_probe in range(self.n_img):
-            roll_linop  = LinOpRoll(self.shifts[i_probe])
+            roll_linop  = LinOpRoll(-self.shifts[i_probe])
             overlap_img = overlap_img + roll_linop.apply(self.probe)
         return overlap_img
 
@@ -111,7 +111,7 @@ class FourierPtychography2d(PhaseRetrievalBase):
 
         overlap_img = np.zeros(shape= (self.reconstruct_size, self.reconstruct_size))
         for i_probe in range(self.n_img):
-            roll_linop  = LinOpRoll2(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
+            roll_linop  = LinOpRoll2(-self.shifts_pair[i_probe,0],-self.shifts_pair[i_probe,1])
             overlap_img = overlap_img + roll_linop.apply(shift_probe)
         return overlap_img
     
@@ -129,3 +129,101 @@ class FourierPtychography2d(PhaseRetrievalBase):
             tria_area       = step_size/2 * np.sqrt(probe_radius**2 - (step_size/2)**2)
             overlap_rate    = 2*(circ_sector - tria_area)/np.pi/(probe_radius**2)
             return overlap_rate
+
+class XRay_Ptychography2d(PhaseRetrievalBase):
+    def __init__(self, probe, shifts_pair:np.ndarray= None, reconstruct_shape:tuple= None, n_img:int= 25):
+        """shifts_pair is defined as [v_shifts,h_shifts]"""
+        self.probe = probe
+        self.probe_shape = probe.shape
+
+        if reconstruct_shape is not None:
+            self.reconstruct_shape = reconstruct_shape
+        else:
+            self.reconstruct_shape = self.probe_shape
+
+        assert shifts_pair.ndim == 2 , "shifts_map dimension should be (n,2)"
+        self.n_img = shifts_pair.shape[0]
+        self.shifts_pair = shifts_pair
+            
+        self.linop = self.get_forward_model()
+
+    @abstractmethod
+    def get_auto_shifts_pair(self) -> np.ndarray:
+        shift_probe = np.fft.fftshift(self.probe)
+        probe_center_row = shift_probe[int(self.probe_shape[0]//2)]    
+        probe_dia = np.count_nonzero(probe_center_row)
+
+        start_shift = -(self.reconstruct_size-probe_dia)//2
+        end_shift = (self.reconstruct_size-probe_dia)//2
+        side_n_img = int(np.sqrt(self.n_img))
+        shifts = np.linspace(start_shift, end_shift, side_n_img).astype(int)
+        shifts_h, shifts_v = np.meshgrid(shifts, shifts)
+        shifts_pair = np.concatenate([shifts_v.reshape(self.n_img,1), shifts_h.reshape(self.n_img,1)], axis=1)
+        return shifts_pair
+
+    def get_forward_model(self) -> BaseLinOp:
+        op_fft2 = LinOpFFT2()
+        op_ifftshift = LinOpIFFTSHIFT()
+        op_fcrop = TEST_LinOpCrop2(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
+        op_probe = LinOpMul(self.probe)
+        linop = StackLinOp([
+            op_ifftshift @ op_fft2 @ op_probe @ op_fcrop @ TEST_LinOpRoll2(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
+            for i_probe in range(self.n_img)
+        ])
+        return linop
+
+    def get_probe_overlap_map(self) -> np.ndarray:
+        op_fcrop = TEST_LinOpCrop2(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
+        shift_probe = op_fcrop.applyT(self.probe)
+
+        overlap_img = np.zeros_like(shift_probe)
+        for i_probe in range(self.n_img):
+            roll_linop  = TEST_LinOpRoll2(-self.shifts_pair[i_probe,0],-self.shifts_pair[i_probe,1])
+            overlap_img = overlap_img + roll_linop.apply(shift_probe)
+        return overlap_img
+
+class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
+    def __init__(self, probe, multiplex_led_mask:np.ndarray, shifts_pair:np.ndarray= None, reconstruct_size= None):
+        """shifts_pair is defined as [v_shifts,h_shifts]"""
+        self.probe = probe
+        self.probe_shape = probe.shape
+        self.multiplex_led_mask = multiplex_led_mask
+
+        if reconstruct_size is not None:
+            self.reconstruct_size = reconstruct_size
+        else:
+            self.reconstruct_size = self.probe_shape
+
+        assert shifts_pair.ndim == 2 , "shifts_map dimension should be (n,2)"
+        self.n_img = self.multiplex_led_mask.shape[0]
+        self.shifts_pair = shifts_pair
+            
+        self.linop = self.get_forward_model()
+
+    def get_forward_model(self) -> BaseLinOp:
+        op_ifft2 = LinOpIFFT2() 
+        op_fftshift = LinOpFFTSHIFT()
+        op_ifftshift = LinOpIFFTSHIFT()
+        op_fcrop = LinOpCrop2(self.reconstruct_size, self.probe_shape[0])
+        op_probe = LinOpMul(self.probe)
+
+        total_linop_list = []
+        for i_probe in range(self.shifts_pair.shape[0]):
+            single_linop = op_ifft2 @ op_probe @ op_ifftshift @ op_fcrop @ op_fftshift @ LinOpRoll2(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
+            total_linop_list.append(single_linop)
+        total_linop_array = np.array(total_linop_list)
+
+        linop_list = total_linop_array @ self.multiplex_led_mask.T
+        linop = StackLinOp(linop_list)
+        return linop
+
+    def get_probe_overlap_map(self) -> np.ndarray:
+        pad_size    = self.reconstruct_size - self.probe_shape[0]
+        shift_probe = np.fft.fftshift(self.probe)
+        shift_probe = np.pad(shift_probe ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
+
+        overlap_img = np.zeros(shape= (self.reconstruct_size, self.reconstruct_size))
+        for i_probe in range(self.n_img):
+            roll_linop  = LinOpRoll2(-self.shifts_pair[i_probe,0],-self.shifts_pair[i_probe,1])
+            overlap_img = overlap_img + roll_linop.apply(shift_probe)
+        return overlap_img
