@@ -445,6 +445,111 @@ class DPC_test(object):
         plt.savefig('_recon_img/DPC_Phase: Reconstruction image.png')
         return x_est
 
+    def single_test(self):
+        ## 1. use experimental setup from Laura dataset
+        camera_size = 256
+        self.ptycho_data    = ptycho2d_Laura_dataSet(camera_size)
+
+        ## 2. ground truth x generating
+        reconstruction_res          = camera_size
+        print(f'recontruction size: {reconstruction_res}')
+
+        ## 3. LED pattern select
+        angle_range                     = np.array([[0,180],[180,360]])
+        multiplex_led_array             = self.ptycho_data.get_bright_field_multiplex_led_array(angle_range= angle_range, show_angle_map= True)
+        y, image_sum, total_img_list    = self.ptycho_data.multiplex_image_select(multiplex_led_array= multiplex_led_array)
+        y                               = cp.array(y)
+
+        ## 4. ptycho2d model create
+        probe                       = cp.array(self.ptycho_data.get_pupil_mask())
+        total_shifts_pair           = self.ptycho_data.total_shifts_pair
+
+
+        op_ifft2        = LinOpIFFT2() 
+        op_fftshift     = LinOpFFTSHIFT()
+        op_ifftshift    = LinOpIFFTSHIFT()
+        op_fcrop        = LinOpCrop2(reconstruction_res, probe.shape[0])
+        op_probe        = LinOpMul(probe)
+
+        total_linop_list = []
+        for _, i_mask in enumerate(multiplex_led_array):
+            shifts_pair = total_shifts_pair[i_mask,:]
+            linop_list = []
+            for _, shifts in enumerate(shifts_pair):
+                _linop = op_ifft2 @ op_probe @ op_ifftshift @ op_fcrop @ op_fftshift @ LinOpRoll2(shifts[0],shifts[1])
+                linop_list.append(_linop)
+            total_linop_list.append(linop_list)
+        total_linop_array = np.array(total_linop_list)
+        linop_list        = np.sum(total_linop_array,axis=1)
+        linop             = StackLinOp(linop_list)
+
+        initial_est             = cp.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)
+        initial_est             = np.fft.fft2(initial_est, norm="ortho")
+        x_est                   = initial_est
+
+
+
+        out_field_list = []
+        y_list         = []
+        for _, i_array in enumerate(total_linop_array):
+            single_out_field = 0
+            single_y         = 0
+            for i_linop in i_array:
+                single_out_field += i_linop.apply(x_est)
+                single_y         += np.abs(i_linop.apply(x_est))**2
+            out_field_list.append(single_out_field)
+            y_list.append(single_y)
+        out_field_array = cp.array(out_field_list)
+        y_array         = cp.array(y_list)
+
+        out_field = None
+        for idx in range(out_field_array.shape[0]):
+            if out_field is None:
+                out_field = out_field_array[idx,:,:]  
+            else:
+                out_field = np.concatenate((out_field,out_field_array[idx,:,:]), axis=0)
+
+        y_est     = None
+        for idx in range(y_array.shape[0]):
+            if y_est is None:
+                y_est = y_array[idx,:,:]  
+            else:
+                y_est = np.concatenate((y_est,y_array[idx,:,:]), axis=0)
+
+        perturbative_model_list = []
+        for _, i_array in enumerate(total_linop_array):
+            for i_linop in i_array:
+                _perturbative_model = None
+                _out_field = i_linop.apply(x_est)
+                if _perturbative_model is None:
+                    _perturbative_model = 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ i_linop
+                else:
+                    _perturbative_model += 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ i_linop
+            perturbative_model_list.append(_perturbative_model)
+        perturbative_model = StackLinOp(perturbative_model_list)
+
+        epsilon = np.zeros_like(x_est)
+        for gd_i_iter in range(20):
+            grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
+            epsilon = epsilon - (1e-2)*grad
+            print(gd_i_iter+1)
+
+        x_est += epsilon
+        x_est  = np.fft.ifft2(x_est, norm="ortho")
+
+        plt.figure()
+        plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Intensity: Reconstructed image')
+        plt.savefig('_recon_img/Single_test_DPC_Intensity: Reconstructed image.png')
+
+        plt.figure()
+        plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Phase: Reconstruction image')
+        plt.savefig('_recon_img/Single_test_DPC_Phase: Reconstruction image.png')
+        
+
 ## ================================================== END Test Class ==================================================
 ## ====================================================================================================================
 
@@ -474,7 +579,9 @@ if __name__ == '__main__':
     # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 200,lr= 1e-3)
 
     ## 2. DPC multiplex
-    angle_range = np.array([[0,180],[180,360]])
+    # angle_range = np.array([[0,180],[180,360]])
     # angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
-    DPC_obj.DPC_img(camera_size= 256, angle_range= angle_range, n_iter= 1, GD_n_iter= 20,lr= None)
+    # DPC_obj.DPC_img(camera_size= 256, angle_range= angle_range, n_iter= 1, GD_n_iter= 1,lr= 1e-1)
+
+    DPC_obj.single_test()
     
