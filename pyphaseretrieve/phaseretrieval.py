@@ -9,6 +9,9 @@ class PhaseRetrievalBase:
     def apply(self, x):
         return self.linop.apply(x)
     
+    def apply_ModularSquare(self, x):
+        return np.abs(self.linop.apply(x))**2
+
     def applyT(self, x):
         return self.linop.applyT(x)
 
@@ -164,21 +167,21 @@ class XRay_Ptychography2d(PhaseRetrievalBase):
     def get_forward_model(self) -> BaseLinOp:
         op_fft2 = LinOpFFT2()
         op_ifftshift = LinOpIFFTSHIFT()
-        op_fcrop = TEST_LinOpCrop2(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
+        op_fcrop = LinOpCrop2_NonSquare(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
         op_probe = LinOpMul(self.probe)
         linop = StackLinOp([
-            op_ifftshift @ op_fft2 @ op_probe @ op_fcrop @ TEST_LinOpRoll2(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
+            op_ifftshift @ op_fft2 @ op_probe @ op_fcrop @ LinOpRoll2_PadZero(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
             for i_probe in range(self.n_img)
         ])
         return linop
 
     def get_probe_overlap_map(self) -> np.ndarray:
-        op_fcrop = TEST_LinOpCrop2(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
+        op_fcrop = LinOpCrop2_NonSquare(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
         shift_probe = op_fcrop.applyT(self.probe)
 
         overlap_img = np.zeros_like(shift_probe)
         for i_probe in range(self.n_img):
-            roll_linop  = TEST_LinOpRoll2(-self.shifts_pair[i_probe,0],-self.shifts_pair[i_probe,1])
+            roll_linop  = LinOpRoll2_PadZero(-self.shifts_pair[i_probe,0],-self.shifts_pair[i_probe,1])
             overlap_img = overlap_img + roll_linop.apply(shift_probe)
         return overlap_img
 
@@ -197,10 +200,11 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
         assert shifts_pair.ndim == 2 , "shifts_map dimension should be (n,2)"
         self.n_img = self.multiplex_led_mask.shape[0]
         self.shifts_pair = shifts_pair
-            
-        self.linop = self.get_forward_model()
 
-    def get_forward_model(self) -> BaseLinOp:
+        self.linop_array = self.get_linop_array()
+        self.in_shape = (self.probe_shape[0]*self.n_img, self.probe_shape[1])
+    
+    def get_linop_array(self) -> BaseLinOp:
         op_ifft2 = LinOpIFFT2() 
         op_fftshift = LinOpFFTSHIFT()
         op_ifftshift = LinOpIFFTSHIFT()
@@ -209,13 +213,41 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
 
         total_linop_list = []
         for i_probe in range(self.shifts_pair.shape[0]):
-            single_linop = op_ifft2 @ op_probe @ op_ifftshift @ op_fcrop @ op_fftshift @ LinOpRoll2(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
-            total_linop_list.append(single_linop)
+            _linop = op_ifft2 @ op_probe @ op_ifftshift @ op_fcrop @ op_fftshift @ LinOpRoll2(self.shifts_pair[i_probe,0],self.shifts_pair[i_probe,1])
+            total_linop_list.append(_linop)
         total_linop_array = np.array(total_linop_list)
+        
+        linop_array = total_linop_array*self.multiplex_led_mask
+        return linop_array
+    
+    def apply(self, x):
+        raise NameError('No apply method in MultiplexedPhaseRetrieval')
 
-        linop_list = total_linop_array @ self.multiplex_led_mask.T
-        linop = StackLinOp(linop_list)
-        return linop
+    def apply_ModularSquare(self, x):
+        y_est = None
+        for _, i_array in enumerate(self.linop_array):
+            single_y = 0
+            for _,i_linop in enumerate(i_array):
+                single_y += np.abs(i_linop.apply(x))**2
+            if y_est is None:
+                y_est = np.copy(single_y)
+            else:
+                y_est = np.concatenate((y_est, single_y), axis=0)
+        return y_est
+
+    def get_perturbative_model(self, x_est):
+        perturbative_model_list = []
+        for _, i_array in enumerate(self.linop_array):
+            _perturbative_model = None
+            for _,i_linop in enumerate(i_array):
+                _out_field = i_linop.apply(x_est)
+                if _perturbative_model is None:
+                    _perturbative_model = 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ i_linop
+                else:
+                    _perturbative_model += 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ i_linop
+            perturbative_model_list.append(_perturbative_model)
+        perturbative_model = StackLinOp(perturbative_model_list)
+        return perturbative_model
 
     def get_probe_overlap_map(self) -> np.ndarray:
         pad_size    = self.reconstruct_size - self.probe_shape[0]

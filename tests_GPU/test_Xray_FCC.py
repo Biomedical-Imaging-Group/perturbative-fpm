@@ -206,7 +206,6 @@ class FCC_dataset(object):
         plt.colorbar()
         plt.title('Abs FCC probe mask')
         plt.savefig('fcc_probe_mask.png')
-        plt.close()
 
     def image_rendering(self,img) -> None:
         plt.figure()
@@ -280,46 +279,60 @@ class test_Xray_ptycho(object):
 
         ## 3. ptycho2d model create
         probe                                                         = cp.array(self.ptycho_data.probe*self.ptycho_data.detector_mask)
-        y, img_list, shifts_pairs, img_idx, reconstruct_shape         = self.ptycho_data.select_images(x_upper_um= 25, x_lower_um= 0, y_upper_um= 7.5, y_lower_um= -7.5, scatter_plot= True)
+        y, img_list, shifts_pairs, img_idx, reconstruct_shape         = self.ptycho_data.select_images(x_upper_um= 25, x_lower_um=10, y_upper_um= 7.5, y_lower_um= -7.5, scatter_plot= True)
         print(f'recontruction shape: {reconstruct_shape}')
 
         self.ptycho_2d_model        = phaseretrieval.XRay_Ptychography2d(probe= probe, shifts_pair= shifts_pairs, reconstruct_shape= reconstruct_shape)
 
         ## 3. solver
-        # loss_function               = loss.loss_amplitude_based(epsilon=0)
-        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= None, line_search= False, acceleration= None)
+        loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
+        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration= None)
 
         ## 6. solve the problem
         initial_est                 = cp.ones(shape= reconstruct_shape, dtype= np.complex128)
         x_est                       = GD_method.iterate(y=y, initial_est=initial_est, n_iter = n_iter, lr = lr)
+        x_est = LinOpCrop2_NonSquare(reconstruct_shape, (500,500)).apply(x_est)
 
         ## 7. result
+        # plt.figure()
+        # plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+        # plt.colorbar()
+        # plt.title('Intensity: X-ray image')
+        # plt.savefig(f'_xray_FCC11_img_nointro_AmpBased/n_iter={n_iter}/Intensity_x=(10-25),y=(-7.5-7.5)_niter={n_iter},lr={lr}.png')
+
+        # plt.figure()
+        # plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+        # plt.colorbar()
+        # plt.title('Phase: Reconstruction image')
+        # plt.savefig(f'_xray_FCC11_img_nointro_AmpBased/n_iter={n_iter}/Phase_x=(10-25),y=(-7.5-7.5)_niter={n_iter},lr={lr}.png')
+
         plt.figure()
         plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Intensity: X-ray image')
-        plt.savefig(f'_xray_FCC11_img_nointro/n_iter={n_iter}/Intensity_x=(0-25),y=(-7.5-7.5)_niter={n_iter},lr={lr}.png')
+        plt.savefig('_recon_img/Xray_Intensity.png')
 
         plt.figure()
         plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Phase: Reconstruction image')
-        plt.savefig(f'_xray_FCC11_img_nointro/n_iter={n_iter}/Phase_x=(0-25),y=(-7.5-7.5)_niter={n_iter},lr={lr}.png')
+        plt.savefig('_recon_img/Xray_Phase.png')
 
         return x_est
 
 if __name__ == '__main__':
     # dataset = FCC_dataset(512)
+    # dataset.probe_rendering()
     # print(dataset.centre_pos_nm)
     # print(dataset.total_shifts_v)
     # print(dataset.total_shifts_h)
     # dataset.select_images()
 
     x_ray_test = test_Xray_ptycho()
-    for _, n_iter in enumerate([100,150]):
-        for lr in np.geomspace(1e-1, 1e-4, num=4):
-            x_ray_test.real_data_test(camera_size= 512, n_iter= n_iter, lr= lr)
-    # x_ray_test.real_data_test(camera_size= 512, n_iter= 50, lr= 1e-01)
+    # for _, n_iter in enumerate([20,50,100]):
+    #     for lr in np.geomspace(1e-1, 1e-6, num=6):
+    #         x_ray_test.real_data_test(camera_size= 512, n_iter= n_iter, lr= lr)
+    x_ray_test.real_data_test(camera_size= 512, n_iter= 600, lr= 1e-03)
 
     # plt.figure()
     # plt.imshow(np.abs(x_ray_test.ptycho_2d_model.get_probe_overlap_map().get()), cmap= cm.Greys_r)

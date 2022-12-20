@@ -230,6 +230,64 @@ class LinOpCrop2(BaseLinOp):
         else:            
             return np.pad(x ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
 
+class LinOpRoll2_PadZero(BaseLinOp):
+    def __init__(self, v_shifts, h_shifts):
+        self.in_shape = (-1,)
+        self.out_shape = (-1,)
+        self.v_shifts = int(v_shifts)
+        self.h_shifts = int(h_shifts)
+
+    def apply(self, x):
+        x = np.roll(x, self.h_shifts, axis=1)
+        if self.h_shifts < 0:
+            x[:, self.h_shifts:] = 0
+        elif self.h_shifts > 0:
+            x[:, 0:self.h_shifts] = 0
+
+        x = np.roll(x, self.v_shifts , axis=0)
+        if self.v_shifts  < 0:
+            x[self.v_shifts :, :] = 0
+        elif self.v_shifts  > 0:
+            x[0:self.v_shifts , :] = 0
+        return x
+
+    def applyT(self, x):
+        x = np.roll(x, -self.h_shifts, axis=1)
+        if -self.h_shifts < 0:
+            x[:, -self.h_shifts:] = 0
+        elif -self.h_shifts > 0:
+            x[:, 0:-self.h_shifts] = 0
+
+        x = np.roll(x, -self.v_shifts , axis=0)
+        if -self.v_shifts  < 0:
+            x[-self.v_shifts :, :] = 0
+        elif -self.v_shifts  > 0:
+            x[0:-self.v_shifts , :] = 0
+        return x
+
+class LinOpCrop2_NonSquare(BaseLinOp):
+    def __init__(self, in_shape, crop_shape):
+        """assume square size of input image"""
+        self.in_shape = in_shape
+        self.out_shape = crop_shape
+        self.crop_shape = crop_shape
+
+    def apply(self, x):
+        v_size, h_size = x.shape
+        v_start = int(v_size//2 - (self.crop_shape[0]//2))
+        h_start = int(h_size//2 - (self.crop_shape[1]//2))
+        return x[v_start:v_start+self.crop_shape[0], h_start:h_start+self.crop_shape[1]]
+
+    def applyT(self, x):
+        v_pad_size = self.in_shape[0] - self.crop_shape[0]        
+        h_pad_size = self.in_shape[1] - self.crop_shape[1] 
+
+        if v_pad_size != 0:        
+            x = np.pad(x,((int(np.floor(v_pad_size/2)), int(np.ceil(v_pad_size/2))), (0, 0)),mode='constant')
+        if h_pad_size != 0:
+            x = np.pad(x,((0, 0), (int(np.floor(h_pad_size/2)), int(np.ceil(h_pad_size/2)))),mode='constant')
+        return x
+
 ## Dimensionless 
 class StackLinOp(BaseLinOp):
     def __init__(self, LinOpList):
@@ -249,3 +307,18 @@ class StackLinOp(BaseLinOp):
             res += linop.applyT(x[current_idx:current_idx+linop.out_shape[0]])
             current_idx += (linop.out_shape[0] if linop.out_shape[0]>0 else self.in_shape[0])
         return res
+
+## functions
+def shift_2d_replace(data, dx, dy, constant=False):
+    shifted_data = np.roll(data, dx, axis=1)
+    if dx < 0:
+        shifted_data[:, dx:] = constant
+    elif dx > 0:
+        shifted_data[:, 0:dx] = constant
+
+    shifted_data = np.roll(shifted_data, dy, axis=0)
+    if dy < 0:
+        shifted_data[dy:, :] = constant
+    elif dy > 0:
+        shifted_data[0:dy, :] = constant
+    return shifted_data

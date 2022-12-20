@@ -90,28 +90,28 @@ class SpectralMethod:  ## only validate in 1D!!
             x_est = np.random.randn(*self.x_shape)
 
         for i_iter in range(np.minimum(n_iter, 10)):
-            x_new = self.pr_model.linop.apply(x_est)
+            x_new = self.pr_model.apply(x_est)
             x_new = threshold * x_new
-            x_new = self.pr_model.linop.applyT(x_new)
+            x_new = self.pr_model.applyT(x_new)
             x_est = x_new / np.linalg.norm(x_new)
 
-        x_new = self.pr_model.linop.apply(x_est)
+        x_new = self.pr_model.apply(x_est)
         x_new = threshold * x_new
-        x_new = self.pr_model.linop.applyT(x_new)
+        x_new = self.pr_model.applyT(x_new)
         corr = np.real(x_new.ravel().T.conj() @ x_est.ravel())
         
         if corr < 0:  
             for i_iter in range(n_iter):
-                x_new = self.pr_model.linop.apply(x_est)
+                x_new = self.pr_model.apply(x_est)
                 x_new = threshold * x_new
-                x_new = self.pr_model.linop.applyT(x_new)
+                x_new = self.pr_model.applyT(x_new)
                 x_new = x_new + 1.1*np.abs(corr)*x_est
                 x_est = x_new / np.linalg.norm(x_new)
         else: 
             for i_iter in range(n_iter - 10):
-                x_new = self.pr_model.linop.apply(x_est)
+                x_new = self.pr_model.apply(x_est)
                 x_new = threshold * x_new
-                x_new = self.pr_model.linop.applyT(x_new)
+                x_new = self.pr_model.applyT(x_new)
                 x_est = x_new / np.linalg.norm(x_new)
         return x_est
     
@@ -124,7 +124,7 @@ class PerturbativePhase:
         else:
             self.loss_func = loss_intensity_based()
 
-        self.x_shape = pr_model.linop.in_shape
+        # self.x_shape = pr_model.in_shape
         self.current_iter = 0
         self.loss_list = []
 
@@ -139,11 +139,13 @@ class PerturbativePhase:
             self.loss_list.append(loss)
             self.current_iter += 1
 
-            out_field = self.pr_model.apply(x_est)
-            y_est = np.abs(out_field)**2
-
-            perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.pr_model.linop
+            if callable(self.pr_model.get_perturbative_model):
+                perturbative_model = self.pr_model.get_perturbative_model(x_est)
+            else:
+                out_field = self.pr_model.apply(x_est)
+                perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.pr_model.linop
             
+            y_est = self.pr_model.apply_ModularSquare(x_est)
             epsilon = np.zeros_like(x_est)
             for gd_i_iter in range(GD_n_iter):
                 grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
@@ -153,6 +155,7 @@ class PerturbativePhase:
             x_est += epsilon
         return x_est
 
+    ## Still have error inside
     def iterate_CGD(self, y, initial_est=None, n_iter=100, CGD_n_iter=20):
         if initial_est is not None:
             x_est = np.copy(initial_est)
