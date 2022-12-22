@@ -226,6 +226,31 @@ class ptycho2d_Laura_dataSet(object):
             else:
                 y = np.concatenate([y,np.uint64(image_sum[idx,:,:])], axis=0)
         return y, image_sum, total_img_list
+
+    def multiplex_image_select_by_array(self, multiplex_led_array:np.ndarray):      
+        h_start     = int(self.CAMERA_H_RES//2  - self.camera_size//2)
+        v_start     = int(self.CAMERA_V_RES//2  - self.camera_size//2)
+        crop_size   = self.camera_size
+        
+        img_idx_array = np.linspace(1,293,293).astype(int)
+        y = None
+        print('image loading...')
+        for _, i_img_mask in enumerate(multiplex_led_array):
+            single_img = np.zeros_like(self.pupil_mask)
+            for i in img_idx_array[i_img_mask]:
+                file_name = str('ILED_{0:04}.tif'.format(i))
+                img       = plt.imread(DAT_FILE_PATH + file_name)
+
+                crop_img = img[v_start:v_start+crop_size, h_start:h_start+crop_size]
+                single_img += crop_img
+            
+            if y is None:
+                y = np.uint64(single_img)
+            else:
+                y = np.concatenate([y,np.uint64(single_img)], axis=0)
+        print('finish loading...')  
+
+        return y 
     
     def select_image(self, img_index_array, centre:list = [0, 0], load_img_or_not:bool = True, remove_background:bool = False, show_background:bool = False):
         shifts_pair     = self.total_shifts_pair[(img_index_array-1),0:2]
@@ -324,27 +349,27 @@ class DPC_test(object):
 
         ## 2. ground truth x generating
         reconstruction_res          = self.ptycho_data.get_reconstruction_size()
-        print(f'recontruction size: {reconstruction_res}')
+        reconstruction_shape        = (reconstruction_res,reconstruction_res)
+        print(f'recontruction size: {reconstruction_shape}')
 
         ## 4. ptycho2d model create
         img_idx_array               = bright_LED_array
         probe                       = cp.array(self.ptycho_data.get_pupil_mask())
         y, img_list, shifts_pair    = self.ptycho_data.select_image(img_idx_array, remove_background= False)
         y                           = cp.array(y)
-        self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_size= reconstruction_res)
+        self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
 
         sum_bright_img = np.uint64(np.zeros_like(img_list[0]))
         for idx in range(len(img_list)):
             sum_bright_img += img_list[idx]
 
-        # print(mean_bright_img)
         ## 5. PPR solver
         initial_est             = cp.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
         ppr_method              = algos.PerturbativePhase(self.ptycho_2d_model)
-        # x_est                   = ppr_method.iterate_GD(y = y, initial_est = initial_est, n_iter = n_iter, GD_n_iter= GD_n_iter, lr = lr)
-        x_est                   = ppr_method.iterate_CGD(y= y, initial_est= initial_est, n_iter= n_iter, CGD_n_iter= GD_n_iter)
+        x_est                   = ppr_method.iterate_GradientDescent(y = y, initial_est = initial_est, n_iter = n_iter, linear_n_iter= GD_n_iter, lr = lr)
+        # x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= GD_n_iter)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
@@ -380,13 +405,16 @@ class DPC_test(object):
         self.ptycho_data    = ptycho2d_Laura_dataSet(camera_size)
 
         ## 2. ground truth x generating
-        reconstruction_res          = camera_size
-        print(f'recontruction size: {reconstruction_res}')
+        # reconstruction_res          = camera_size
+        reconstruction_res          = self.ptycho_data.get_reconstruction_size()
+        reconstruction_shape        = (reconstruction_res, reconstruction_res)
+        print(f'recontruction shape: {reconstruction_shape}')
 
         ## 3. LED pattern select
         angle_range                     = angle_range
         multiplex_led_array             = self.ptycho_data.get_bright_field_multiplex_led_array(angle_range= angle_range, show_angle_map= True)
-        y, image_sum, total_img_list    = self.ptycho_data.multiplex_image_select(multiplex_led_array= multiplex_led_array)
+        # y, image_sum, total_img_list    = self.ptycho_data.multiplex_image_select(multiplex_led_array= multiplex_led_array)
+        y                               = self.ptycho_data.multiplex_image_select_by_array(multiplex_led_array= multiplex_led_array)
         y                               = cp.array(y)
 
         ## 4. ptycho2d model create
@@ -397,37 +425,12 @@ class DPC_test(object):
         initial_est             = cp.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
-        pr_model                = phaseretrieval.MultiplexedPhaseRetrieval(probe= probe,multiplex_led_mask= multiplex_led_array, shifts_pair= total_shifts_pair, reconstruct_size= reconstruction_res)
+        pr_model                = phaseretrieval.MultiplexedPhaseRetrieval(probe= probe,multiplex_led_mask= multiplex_led_array, shifts_pair= total_shifts_pair, reconstruct_shape= reconstruction_shape)
 
         ppr_method              = algos.PerturbativePhase(pr_model)
-        x_est                   = ppr_method.iterate_GD(y= y, initial_est= initial_est, n_iter= n_iter, GD_n_iter= GD_n_iter, lr=lr)
+        # x_est                   = ppr_method.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= GD_n_iter, lr=lr)
+        x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= GD_n_iter)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
-
-        ## 7. result
-        # plt.figure()
-        # plt.imshow(total_img_list[int(len(total_img_list)/2)-1], cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Center Bright Field Image')
-        # plt.savefig('_recon_img/DPC_Center Bright Field Image.png')
-
-        # plt.figure()
-        # plt.imshow(sum_bright_img, cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Sum All Bright Field Image')
-        # plt.savefig('_recon_img/DPC: Sum All Bright Field Image.png')
-
-        # plt.figure()
-        # plt.imshow(image_sum[0,:,:], cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Sum Top Bright Field Image')
-        # plt.savefig('_recon_img/DPC: Sum Top Bright Field Image.png')
-
-        # plt.figure()
-        # plt.imshow(image_sum[1,:,:], cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Sum Bottom Bright Field Image')
-        # plt.savefig('_recon_img/DPC: Sum Bottom Bright Field Image.png')
-
 
         plt.figure()
         plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
@@ -441,106 +444,6 @@ class DPC_test(object):
         plt.title('Phase: Reconstruction image')
         plt.savefig('_recon_img/DPC_Phase: Reconstruction image.png')
         return x_est
-
-    def single_test(self):
-        ## 1. use experimental setup from Laura dataset
-        camera_size = 256
-        self.ptycho_data    = ptycho2d_Laura_dataSet(camera_size)
-
-        ## 2. ground truth x generating
-        reconstruction_res          = camera_size
-        print(f'recontruction size: {reconstruction_res}')
-
-        ## 3. LED pattern select
-        # angle_range                     = np.array([[0,180],[180,360]])
-        angle_range                     = np.array([[0,90],[90,180],[180,270],[270,360]])
-        multiplex_led_array             = self.ptycho_data.get_bright_field_multiplex_led_array(angle_range= angle_range, show_angle_map= True)
-        y, image_sum, total_img_list    = self.ptycho_data.multiplex_image_select(multiplex_led_array= multiplex_led_array)
-        y                               = cp.array(y)
-
-        ## 4. ptycho2d model create
-        probe                       = cp.array(self.ptycho_data.get_pupil_mask())
-        total_shifts_pair           = self.ptycho_data.total_shifts_pair
-
-        ## 5. initial guess
-        initial_est             = cp.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128)
-        initial_est             = np.fft.fft2(initial_est, norm="ortho")
-
-        pr_model                = phaseretrieval.MultiplexedPhaseRetrieval(probe= probe,multiplex_led_mask= multiplex_led_array, shifts_pair= total_shifts_pair, reconstruct_size= reconstruction_res)
-
-        ppr_method              = algos.PerturbativePhase(pr_model)
-        x_est                   = ppr_method.iterate_GD(y= y, initial_est= initial_est, n_iter= 1, GD_n_iter= 15, lr=1e-2)
-        x_est                   = np.fft.ifft2(x_est, norm="ortho")
-
-        ## 6. Forward model create
-        # op_ifft2        = LinOpIFFT2() 
-        # op_fftshift     = LinOpFFTSHIFT()
-        # op_ifftshift    = LinOpIFFTSHIFT()
-        # op_fcrop        = LinOpCrop2(reconstruction_res, probe.shape[0])
-        # op_probe        = LinOpMul(probe)
-
-        # total_linop_list = []
-        # for _, i_mask in enumerate(multiplex_led_array):
-        #     shifts_pair = total_shifts_pair[i_mask,:]
-        #     linop_list = []
-        #     for _, shifts in enumerate(shifts_pair):
-        #         _linop = op_ifft2 @ op_probe @ op_ifftshift @ op_fcrop @ op_fftshift @ LinOpRoll2(shifts[0],shifts[1])
-        #         linop_list.append(_linop)
-        #     total_linop_list.append(linop_list)
-        # total_linop_array = np.array(total_linop_list)
-        # linop_list        = np.sum(total_linop_array,axis=1)
-
-        ## 7. iteration Start
-        # x_est                   = initial_est
-
-        # y_list         = []
-        # for _, i_array in enumerate(total_linop_array):
-        #     single_y         = 0
-        #     for i_linop in i_array:
-        #         single_y         += np.abs(i_linop.apply(x_est))**2
-        #     y_list.append(single_y)
-        # y_array         = cp.array(y_list)
-        
-        # y_est     = None
-        # for idx in range(y_array.shape[0]):
-        #     if y_est is None:
-        #         y_est = y_array[idx,:,:]  
-        #     else:
-        #         y_est = np.concatenate((y_est,y_array[idx,:,:]), axis=0)
-
-        # perturbative_model_list = []
-        # for _, i_array in enumerate(total_linop_array):
-        #     _perturbative_model = None
-        #     for i_linop in i_array:
-        #         _out_field = i_linop.apply(x_est)
-        #         if _perturbative_model is None:
-        #             _perturbative_model = 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ i_linop
-        #         else:
-        #             _perturbative_model += 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ i_linop
-        #     perturbative_model_list.append(_perturbative_model)
-        # perturbative_model = StackLinOp(perturbative_model_list)
-
-        # epsilon = np.zeros_like(x_est)
-        # for gd_i_iter in range(50):
-        #     grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
-        #     epsilon = epsilon - (1e-7)*grad
-        #     print(gd_i_iter+1)
-
-        # x_est += epsilon
-        # x_est  = np.fft.ifft2(x_est, norm="ortho")
-        ## 8. Result rendering
-        plt.figure()
-        plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
-        plt.colorbar()
-        plt.title('Intensity: Reconstructed image')
-        plt.savefig('_recon_img/Single_test_DPC_Intensity: Reconstructed image.png')
-
-        plt.figure()
-        plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
-        plt.colorbar()
-        plt.title('Phase: Reconstruction image')
-        plt.savefig('_recon_img/Single_test_DPC_Phase: Reconstruction image.png')
-
 
 ## ================================================== END Test Class ==================================================
 ## ====================================================================================================================
@@ -556,24 +459,14 @@ def cart2pol(x, y):
 
 
 if __name__ == '__main__':
-    # dataset = ptycho2d_Laura_dataSet(256)
-    # angle_range = np.array([[0,180],[180,360]])
-    # multiplex_array = dataset.get_bright_field_multiplex_led_array(angle_range,show_angle_map=True)
-    # print(multiplex_array.shape)
-
-    # multiplex_array = np.array([[1,0,0,0],[1,0,0,1]])
-    # y = dataset.multiplex_image_select(multiplex_led_array= multiplex_array)
-    # print(y.shape)
-
     DPC_obj = DPC_test()
     # 1. FPM No multiplex
     # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 20,lr= None)
-    # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 200,lr= 1e-3)
+    # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 200,lr= 1e-4)
 
     ## 2. DPC multiplex
-    angle_range = np.array([[0,180],[180,360]])
-    # angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
-    DPC_obj.DPC_img(camera_size= 256, angle_range= angle_range, n_iter= 1, GD_n_iter= 15,lr= 1e-7)
-
-    # DPC_obj.single_test()
-    
+    # angle_range = np.array([[0,180],[180,360]])
+    # angle_range = np.array([[270,90],[90,270]])
+    # angle_range = np.array([[0,180],[180,360],[270,90],[90,270]])
+    angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
+    DPC_obj.DPC_img(camera_size= 256, angle_range= angle_range, n_iter= 1, GD_n_iter= 5,lr= 1e-4)    

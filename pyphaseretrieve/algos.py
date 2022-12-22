@@ -6,15 +6,16 @@ from pyphaseretrieve.phaseretrieval import *
 class GradientDescent:
     def __init__(self, pr_model:PhaseRetrievalBase, loss_func:LossFunction=None, line_search=None, acceleration=None):
         self.pr_model = pr_model
-        if loss_func is not None:
-            self.loss_func = loss_func
-        else:
+
+        if loss_func is None:
             self.loss_func = loss_intensity_based()
+        else:
+            self.loss_func = loss_func
 
         self.line_search = line_search
         self.acceleration = acceleration
 
-        self.x_shape = pr_model.linop.in_shape
+        self.x_shape = pr_model.in_shape
         self.current_iter = 0
         self.loss_list = []
 
@@ -38,7 +39,6 @@ class GradientDescent:
                 actual_lr = self.find_lr(x_est, y, descent_direction, grad, loss, initial_lr=lr)
             else:
                 actual_lr = lr
-            print(self.current_iter)
 
             x_est += actual_lr * descent_direction
         return x_est 
@@ -72,10 +72,10 @@ class GradientDescent:
                 self.previous_direction = -grad + beta * self.previous_direction
                 return self.previous_direction
 
-class SpectralMethod:  ## only validate in 1D!!
+class SpectralMethod: 
     def __init__(self, pr_model:PhaseRetrievalBase):
         self.pr_model = pr_model
-        self.x_shape = pr_model.linop.in_shape
+        self.x_shape = pr_model.in_shape
 
     def iterate(self, y, initial_est= None, n_iter=100, method="Lu"):       
         y_norm = y/np.mean(y)  
@@ -119,16 +119,17 @@ class PerturbativePhase:
     def __init__(self, pr_model:PhaseRetrievalBase, loss_func:LossFunction=None):
         """min {Y-|Ax|**2 - B*epsilon}"""
         self.pr_model = pr_model
-        if loss_func is not None:
-            self.loss_func = loss_func
-        else:
-            self.loss_func = loss_intensity_based()
 
-        # self.x_shape = pr_model.in_shape
+        if loss_func is None:
+            self.loss_func = loss_intensity_based()
+        else:
+            self.loss_func = loss_func
+
+        self.x_shape = pr_model.in_shape
         self.current_iter = 0
         self.loss_list = []
 
-    def iterate_GD(self, y, initial_est=None, n_iter=100, GD_n_iter=20, lr=1e-1):
+    def iterate_GradientDescent(self, y, initial_est=None, n_iter=100, linear_n_iter=20, lr=1e-1):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -139,24 +140,18 @@ class PerturbativePhase:
             self.loss_list.append(loss)
             self.current_iter += 1
 
-            if callable(self.pr_model.get_perturbative_model):
-                perturbative_model = self.pr_model.get_perturbative_model(x_est)
-            else:
-                out_field = self.pr_model.apply(x_est)
-                perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.pr_model.linop
+            perturbative_model = self.pr_model.get_perturbative_model(x_est, method= 'GradientDescent')
             
             y_est = self.pr_model.apply_ModularSquare(x_est)
             epsilon = np.zeros_like(x_est)
-            for gd_i_iter in range(GD_n_iter):
+            for _ in range(linear_n_iter):
                 grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
                 epsilon = epsilon - lr*grad
-            print(self.current_iter)
 
             x_est += epsilon
         return x_est
 
-    ## Still have error inside
-    def iterate_CGD(self, y, initial_est=None, n_iter=100, CGD_n_iter=20):
+    def iterate_ConjugateGradientDescent(self, y, initial_est=None, n_iter=100, linear_n_iter=20):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -167,23 +162,21 @@ class PerturbativePhase:
             self.loss_list.append(loss)
             self.current_iter += 1
 
-            out_field = self.pr_model.apply(x_est)
-            y_est = np.abs(out_field)**2
+            perturbative_model = self.pr_model.get_perturbative_model(x_est, method= 'ConjugateGradientDescent')
 
-            perturbative_model = RealPartExpandOp (2 * LinOpMul(out_field.conj()) @ self.pr_model.linop)
-            
+            y_est = self.pr_model.apply_ModularSquare(x_est)
+
             epsilon_expand = np.zeros_like(x_est)
             epsilon_expand = np.repeat(epsilon_expand, repeats=2, axis=0)
             res = (perturbative_model.applyT(perturbative_model.apply(epsilon_expand))) - perturbative_model.applyT(y - y_est)
             descent_direction = -res
-            for cgd_i_iter in range(CGD_n_iter):
+            for _ in range(linear_n_iter):
                 alpha = (res.ravel().T.conj() @ res.ravel())/(descent_direction.ravel().T.conj() @ perturbative_model.applyT(perturbative_model.apply(descent_direction)).ravel())
                 epsilon_expand = epsilon_expand + alpha*descent_direction
                 r_new = res + alpha * (perturbative_model.applyT(perturbative_model.apply(descent_direction)))
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
-            epsilon = epsilon_expand[:self.pr_model.linop.in_shape[0]] + epsilon_expand[self.pr_model.linop.in_shape[0]:]* 1j
-            print(self.current_iter)
+            epsilon = epsilon_expand[:self.pr_model.in_shape[0]] + epsilon_expand[self.pr_model.in_shape[0]:]* 1j
 
             x_est += epsilon
         return x_est

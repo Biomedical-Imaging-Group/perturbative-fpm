@@ -34,8 +34,8 @@ class PPR_algos_test(object):
         # 2.  solver
         ppr_model = algos.PerturbativePhase(pr_model)
         initial_est = cp.ones(shape= (in_dim,), dtype= np.complex128)
-        # x_est = ppr_model.iterate_GD(y= y, initial_est= initial_est, n_iter= 15, GD_n_iter= 50, lr=1e-9)
-        x_est = ppr_model.iterate_CGD(y= y, initial_est= initial_est,n_iter=15, CGD_n_iter=15)
+        # x_est = ppr_model.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= 15, linear_n_iter= 50, lr=1e-9)
+        x_est = ppr_model.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est,n_iter=15, linear_n_iter=15)
 
         # 3. print final correlation
         print("Result correlation:")
@@ -62,8 +62,8 @@ class PPR_algos_test(object):
         # 4. solver
         ppr_model = algos.PerturbativePhase(pr_model)
         initial_est = cp.ones(shape= (in_dim,), dtype= cp.complex128)
-        # x_est = ppr_model.iterate_GD(y= y, initial_est= initial_est, n_iter= 100, GD_n_iter= 40, lr=2e-4)
-        x_est = ppr_model.iterate_CGD(y= y,initial_est= initial_est,n_iter=25, CGD_n_iter=15)
+        # x_est = ppr_model.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= 100, linear_n_iter= 40, lr=2e-4)
+        x_est = ppr_model.iterate_ConjugateGradientDescent(y= y,initial_est= initial_est,n_iter=25, linear_n_iter=15)
 
         # 5. print final correlation
         print("Result correlation:")
@@ -93,7 +93,7 @@ class PPR_algos_test(object):
 
         initial_est = cp.random.randn(in_dim)
         x_spec = Spec_method.iterate(y= y, initial_est= initial_est)
-        x_est =ppr_model.iterate_CGD(y= y, initial_est= x_spec, n_iter=25, CGD_n_iter=20)
+        x_est =ppr_model.iterate_ConjugateGradientDescent(y= y, initial_est= x_spec, n_iter=25, linear_n_iter=20)
 
         # 5. print final correlation
         print("Result correlation:")
@@ -104,6 +104,6 @@ if __name__ == '__main__':
 
     # PPR_test.test_rand1d_case()
     # print('---------------')
-    # PPR_test.test_Ptychography1d_case_without_spectral()
-    # print('---------------')
+    PPR_test.test_Ptychography1d_case_without_spectral()
+    print('---------------')
     PPR_test.test_Ptychography1d_case_with_spectral()
