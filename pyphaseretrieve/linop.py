@@ -127,11 +127,11 @@ class LinOpImag(BaseLinOp):
     def applyT(self, x):
         return np.zeros_like(x, dtype= np.complex128)
 
-class RealPartExpandOp(BaseLinOp):
+class LinOp_RealPartExpand(BaseLinOp):
     def __init__(self, LinOp:BaseLinOp):
         self.LinOp = LinOp
-        self.in_size = (2*LinOp.in_shape[0],)
-        self.out_size = LinOp.out_shape
+        self.in_shape = (2*LinOp.in_shape[0],)
+        self.out_shape = LinOp.out_shape
     
     def apply(self,x):
         return np.real(self.LinOp.apply(x[0:self.LinOp.in_shape[0]])) - np.imag(self.LinOp.apply(x[-self.LinOp.in_shape[0]:]) )
@@ -210,25 +210,27 @@ class LinOpRoll2(BaseLinOp):
         return np.roll(x, shift=(-self.v_shifts,-self.h_shifts), axis=(0,1))
 
 class LinOpCrop2(BaseLinOp):
-    def __init__(self, in_size, crop_size):
+    def __init__(self, in_shape, crop_shape):
         """assume square size of input image"""
-        self.in_shape = (in_size,in_size)
-        self.out_shape = (crop_size,crop_size)
-        self.in_size  = in_size
-        self.crop_size = crop_size
+        self.in_shape = in_shape
+        self.out_shape = crop_shape
+        self.crop_shape = crop_shape
 
     def apply(self, x):
         v_size, h_size = x.shape
-        h_start = int(h_size//2 - (self.crop_size//2))
-        v_start = int(v_size//2 - (self.crop_size//2))
-        return x[v_start:v_start+self.crop_size, h_start:h_start+self.crop_size]
+        v_start = int(v_size//2 - (self.crop_shape[0]//2))
+        h_start = int(h_size//2 - (self.crop_shape[1]//2))
+        return x[v_start:v_start+self.crop_shape[0], h_start:h_start+self.crop_shape[1]]
 
     def applyT(self, x):
-        pad_size = self.in_size - self.crop_size        
-        if      pad_size == 0:
-            return x
-        else:            
-            return np.pad(x ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
+        v_pad_size = self.in_shape[0] - self.crop_shape[0]        
+        h_pad_size = self.in_shape[1] - self.crop_shape[1] 
+
+        if v_pad_size != 0:        
+            x = np.pad(x,((int(np.floor(v_pad_size/2)), int(np.ceil(v_pad_size/2))), (0, 0)),mode='constant')
+        if h_pad_size != 0:
+            x = np.pad(x,((0, 0), (int(np.floor(h_pad_size/2)), int(np.ceil(h_pad_size/2)))),mode='constant')
+        return x
 
 class LinOpRoll2_PadZero(BaseLinOp):
     def __init__(self, v_shifts, h_shifts):
@@ -263,29 +265,6 @@ class LinOpRoll2_PadZero(BaseLinOp):
             x[-self.v_shifts :, :] = 0
         elif -self.v_shifts  > 0:
             x[0:-self.v_shifts , :] = 0
-        return x
-
-class LinOpCrop2_NonSquare(BaseLinOp):
-    def __init__(self, in_shape, crop_shape):
-        """assume square size of input image"""
-        self.in_shape = in_shape
-        self.out_shape = crop_shape
-        self.crop_shape = crop_shape
-
-    def apply(self, x):
-        v_size, h_size = x.shape
-        v_start = int(v_size//2 - (self.crop_shape[0]//2))
-        h_start = int(h_size//2 - (self.crop_shape[1]//2))
-        return x[v_start:v_start+self.crop_shape[0], h_start:h_start+self.crop_shape[1]]
-
-    def applyT(self, x):
-        v_pad_size = self.in_shape[0] - self.crop_shape[0]        
-        h_pad_size = self.in_shape[1] - self.crop_shape[1] 
-
-        if v_pad_size != 0:        
-            x = np.pad(x,((int(np.floor(v_pad_size/2)), int(np.ceil(v_pad_size/2))), (0, 0)),mode='constant')
-        if h_pad_size != 0:
-            x = np.pad(x,((0, 0), (int(np.floor(h_pad_size/2)), int(np.ceil(h_pad_size/2)))),mode='constant')
         return x
 
 ## Dimensionless 

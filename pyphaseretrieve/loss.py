@@ -20,7 +20,7 @@ class loss_intensity_based(LossFunction):
         loss = np.sum((y_est - y)**2)  
         if compute_grad:
             out_field = pr_model.apply(x_est)
-            grad = 2 * pr_model.applyT( (y_est - y) * out_field )
+            grad = -2 * pr_model.applyT( out_field * (y - y_est) )
             return loss, grad
         else:
             return loss
