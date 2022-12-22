@@ -28,6 +28,7 @@ class GD_algos_test(object):
         out_dim = 16000
         linop = LinOpMatrix(cp.random.randn(out_dim, in_dim) + 1j * cp.random.randn(out_dim, in_dim))
         pr_model = phaseretrieval.PhaseRetrievalBase(linop= linop)
+        pr_model.in_shape = linop.in_shape
         
         x = self.generate_rand1d_x(in_dim)
         y = np.abs(pr_model.apply(x))**2
@@ -56,7 +57,7 @@ class GD_algos_test(object):
 
         # 3. Ptychogram create
         pr_model = phaseretrieval.Ptychography1d(probe,n_img=10)
-        print(f"The overlap is {pr_model.overlap_rate()}")
+        print(f"The overlap is {pr_model.get_overlap_rate()}")
 
         y = np.abs(pr_model.apply(x))**2
 
@@ -84,7 +85,7 @@ class GD_algos_test(object):
 
         # 3. Ptychogram create
         pr_model = phaseretrieval.Ptychography1d(probe,n_img=10)
-        print(f"The overlap is {pr_model.overlap_rate()}")
+        print(f"The overlap is {pr_model.get_overlap_rate()}")
 
         y = np.abs(pr_model.apply(x))**2
 
@@ -104,11 +105,8 @@ class GD_algos_test(object):
 if __name__ == '__main__':
     GD_test = GD_algos_test()
 
-    start = time.time()
-    # GD_test.test_rand1d_case()
-    # print('---------------')
+    GD_test.test_rand1d_case()
+    print('---------------')
     GD_test.test_Ptychography1d_case_without_spectral()
     print('---------------')
     GD_test.test_Ptychography1d_case_with_spectral()
-    end = time.time()
-    print(end - start)

@@ -393,7 +393,7 @@ class test_PPR_in_ptych2d(object):
         initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
-        x_est                   = ppr_method.iterate_GD(y = y, initial_est = initial_est, n_iter = n_iter, GD_n_iter= GD_n_iter, lr = lr)
+        x_est                   = ppr_method.iterate_GradientDescent(y = y, initial_est = initial_est, n_iter = n_iter, linear_n_iter= GD_n_iter, lr = lr)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
@@ -424,7 +424,7 @@ class test_PPR_in_ptych2d(object):
         initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
-        x_est                   = ppr_method.iterate_GD(y = y, initial_est = initial_est, n_iter = n_iter, GD_n_iter= GD_n_iter, lr = lr)
+        x_est                   = ppr_method.iterate_GradientDescent(y = y, initial_est = initial_est, n_iter = n_iter, linear_n_iter= GD_n_iter, lr = lr)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
         plt.figure()
@@ -465,7 +465,7 @@ class test_PPR_in_ptych2d(object):
         initial_est             = np.ones(shape=(reconstruction_res,reconstruction_res), dtype=np.complex128) 
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
-        x_est                   = ppr_method.iterate_GD(y = y, initial_est = initial_est, n_iter = n_iter, GD_n_iter= GD_n_iter, lr = lr)
+        x_est                   = ppr_method.iterate_GradientDescent(y = y, initial_est = initial_est, n_iter = n_iter, linear_n_iter= GD_n_iter, lr = lr)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
