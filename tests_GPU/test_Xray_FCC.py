@@ -279,19 +279,19 @@ class test_Xray_ptycho(object):
 
         ## 3. ptycho2d model create
         probe                                                         = cp.array(self.ptycho_data.probe*self.ptycho_data.detector_mask)
-        y, img_list, shifts_pairs, img_idx, reconstruct_shape         = self.ptycho_data.select_images(x_upper_um= 25, x_lower_um=10, y_upper_um= 7.5, y_lower_um= -7.5, scatter_plot= True)
+        y, img_list, shifts_pairs, img_idx, reconstruct_shape         = self.ptycho_data.select_images(x_upper_um= 15, x_lower_um=0, y_upper_um= 7.5, y_lower_um= -7.5, scatter_plot= True)
         print(f'recontruction shape: {reconstruct_shape}')
 
         self.ptycho_2d_model        = phaseretrieval.XRay_Ptychography2d(probe= probe, shifts_pair= shifts_pairs, reconstruct_shape= reconstruct_shape)
 
         ## 3. solver
         loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
-        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration= None)
+        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= None, line_search= None, acceleration= None)
 
         ## 6. solve the problem
         initial_est                 = cp.ones(shape= reconstruct_shape, dtype= np.complex128)
         x_est                       = GD_method.iterate(y=y, initial_est=initial_est, n_iter = n_iter, lr = lr)
-        x_est = LinOpCrop2_NonSquare(reconstruct_shape, (500,500)).apply(x_est)
+        x_est                       = LinOpCrop2(reconstruct_shape, (500,500)).apply(x_est)
 
         ## 7. result
         # plt.figure()
@@ -332,7 +332,7 @@ if __name__ == '__main__':
     # for _, n_iter in enumerate([20,50,100]):
     #     for lr in np.geomspace(1e-1, 1e-6, num=6):
     #         x_ray_test.real_data_test(camera_size= 512, n_iter= n_iter, lr= lr)
-    x_ray_test.real_data_test(camera_size= 512, n_iter= 600, lr= 1e-03)
+    x_ray_test.real_data_test(camera_size= 512, n_iter= 600, lr= 1e-07)
 
     # plt.figure()
     # plt.imshow(np.abs(x_ray_test.ptycho_2d_model.get_probe_overlap_map().get()), cmap= cm.Greys_r)
