@@ -219,6 +219,9 @@ class XRay_Ptychography2d(PhaseRetrievalBase):
             for i_probe in range(self.n_img)
         ])
         return linop
+    
+    def get_linop_list(self):
+        return self.linop.LinOpList
 
     def get_perturbative_model(self, x_est, method:str):
         if method == 'GradientDescent':
