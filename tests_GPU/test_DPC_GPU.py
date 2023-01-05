@@ -46,6 +46,7 @@ class ptycho2d_Laura_dataSet(object):
         self.fourier_res           = self.get_fourierResolution()
         self.pupil_mask            = self.get_pupil_mask()
 
+        # self.NA_illu               = self.get_illumnationNA()
         self.NA_illu               = self.get_bright_illumnationNA()
 
         self.total_shifts_h_map ,self.total_shifts_v_map , self.total_shifts_pair = self.get_shiftsMap_shiftsPairs()
@@ -189,9 +190,109 @@ class ptycho2d_Laura_dataSet(object):
                 plt.imshow(multiplex_led_idx_map>0, cmap=cm.Greys_r)
                 plt.colorbar()
                 plt.title(f'Lit LED pattern {idx}')
-                plt.savefig(f'led_map{idx}.png')
+                plt.savefig(f'led_pattern/led_map{idx}.png')
         multiplex_led_array      = np.array(multiplex_led_list)
         return multiplex_led_array
+
+    def get_dark_field_multiplex_led_array(self, angle_range:np.ndarray, radius:float, show_angle_map:bool= False) -> np.ndarray:
+        # Convert led_angle_map to 0-360 degree map
+        led_r_map, led_angle_map = self.get_led_r_angle_map()
+        led_360_anlge_map = np.copy(led_angle_map)
+        led_360_anlge_map = np.flip(np.abs((led_360_anlge_map - np.abs(led_360_anlge_map))/2), axis=1)
+        led_360_anlge_map[9,:] = 0
+        led_angle_map[led_angle_map<-1] = 180
+        led_angle_map     = led_angle_map + led_360_anlge_map
+
+        led_index_map            = self.get_led_index_map()
+        led_mask                 = self.get_led_mask()
+
+        dark_field_led_mask      = led_r_map<radius
+        _, birght_field_led_mask = self.get_bright_field_LED_map()
+        dark_field_led_mask      = np.logical_xor(dark_field_led_mask,birght_field_led_mask)
+        # dark_field_led_mask      = np.logical_or(dark_field_led_mask,birght_field_led_mask)
+
+        multiplex_led_list = []
+        for idx in range(angle_range.shape[0]):
+            if (angle_range[idx,1] - angle_range[idx,0])<0:
+                led_angle_mask           = np.logical_and(np.logical_or(angle_range[idx,0]<led_angle_map,led_angle_map<angle_range[idx,1]),led_r_map!=0)
+            else:
+                led_angle_mask           = np.logical_and(angle_range[idx,0]<led_angle_map,led_angle_map<angle_range[idx,1])
+            multiplex_led_idx_map    = led_index_map*led_mask*dark_field_led_mask*led_angle_mask
+            multiplex_led_list.append(multiplex_led_idx_map[led_mask]>1)
+            if show_angle_map:
+                plt.figure()
+                plt.imshow(multiplex_led_idx_map>0, cmap=cm.Greys_r)
+                plt.colorbar()
+                plt.title(f'Lit Dark LED pattern {idx}')
+                plt.savefig(f'led_pattern/dark_led_map{idx}.png')
+        multiplex_led_array      = np.array(multiplex_led_list)
+
+        led_r           = int(np.max(radius)) * self.led_pitch
+        illuminationNA  = led_r/math.sqrt(self.led_d_z**2+led_r**2)
+
+        self.NA_illu         = illuminationNA
+        reconstruction_size  = self.get_reconstruction_size()
+        reconstruction_shape = (reconstruction_size, reconstruction_size)
+
+        return multiplex_led_array, reconstruction_shape
+    
+    def get_multiplex_led_array_by_radius(self, angle_range:np.ndarray, radius:np.ndarray, show_angle_map:bool= False) -> np.ndarray:
+        # Convert led_angle_map to 0-360 degree map
+        led_r_map, led_angle_map = self.get_led_r_angle_map()
+        led_360_anlge_map = np.copy(led_angle_map)
+        led_360_anlge_map = np.flip(np.abs((led_360_anlge_map - np.abs(led_360_anlge_map))/2), axis=1)
+        led_360_anlge_map[9,:] = 0
+        led_angle_map[led_angle_map<-1] = 180
+        led_angle_map     = led_angle_map + led_360_anlge_map
+
+        led_index_map            = self.get_led_index_map()
+        led_mask                 = self.get_led_mask()
+
+        dark_field_led_mask      = np.logical_and(radius[0]<=led_r_map,led_r_map<=radius[1])
+        _, birght_field_led_mask = self.get_bright_field_LED_map()
+
+        multiplex_led_list = []
+        total_overlap      = np.zeros_like(led_r_map)
+        for idx in range(angle_range.shape[0]):
+            if (angle_range[idx,1] - angle_range[idx,0])<0:
+                led_angle_mask           = np.logical_and(np.logical_or(angle_range[idx,0]<led_angle_map,led_angle_map<angle_range[idx,1]),led_r_map!=0)
+            else:
+                led_angle_mask           = np.logical_and(angle_range[idx,0]<led_angle_map,led_angle_map<angle_range[idx,1])
+            multiplex_led_idx_map    = led_index_map*led_mask*dark_field_led_mask*led_angle_mask
+            multiplex_led_list.append(multiplex_led_idx_map[led_mask]>1)
+            if show_angle_map:
+                overlap_led_mask         = np.logical_and(multiplex_led_idx_map, birght_field_led_mask)
+                _img = (multiplex_led_idx_map>0).astype(int) + overlap_led_mask.astype(int)
+                plt.figure()
+                plt.imshow(_img, cmap=cm.Greys_r)
+                plt.colorbar()
+                plt.title(f'Lit Dark Overlap LED pattern {idx}')
+                plt.savefig(f'led_pattern/dark_overlap_led_map{idx}.png')
+                total_overlap += _img
+
+                plt.figure()
+                plt.imshow(multiplex_led_idx_map>0, cmap=cm.Greys_r)
+                plt.colorbar()
+                plt.title(f'Lit Dark LED pattern {idx}')
+                plt.savefig(f'led_pattern/dark_led_map{idx}.png')
+
+        if show_angle_map:
+            plt.figure()
+            plt.imshow(total_overlap, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Total Lit Dark Overlap LED pattern')
+            plt.savefig(f'led_pattern/total_dark_overlap_led_map.png')
+
+        multiplex_led_array      = np.array(multiplex_led_list)
+
+        led_r           = int(np.max(radius)) * self.led_pitch
+        illuminationNA  = led_r/math.sqrt(self.led_d_z**2+led_r**2)
+
+        self.NA_illu         = illuminationNA
+        reconstruction_size  = self.get_reconstruction_size()
+        reconstruction_shape = (reconstruction_size, reconstruction_size)
+
+        return multiplex_led_array, reconstruction_shape
 
     def multiplex_image_select(self, multiplex_led_array:np.ndarray, remove_background:bool = False):       
         h_start     = int(self.CAMERA_H_RES//2  - self.camera_size//2)
@@ -368,8 +469,8 @@ class DPC_test(object):
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
 
         ppr_method              = algos.PerturbativePhase(self.ptycho_2d_model)
-        x_est                   = ppr_method.iterate_GradientDescent(y = y, initial_est = initial_est, n_iter = n_iter, linear_n_iter= GD_n_iter, lr = lr)
-        # x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= GD_n_iter)
+        # x_est                   = ppr_method.iterate_GradientDescent(y = y, initial_est = initial_est, n_iter = n_iter, linear_n_iter= GD_n_iter, lr = lr)
+        x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= GD_n_iter)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
         ## 7. result
@@ -401,14 +502,14 @@ class DPC_test(object):
     def DPC_img(self, camera_size, angle_range:np.ndarray, n_iter= 1, GD_n_iter= 5,lr= 1):
         print('REAL dataset test \n----------------------')
         ## 1. use experimental setup from Laura dataset
-        camera_size = 256
+        camera_size         = camera_size
         self.ptycho_data    = ptycho2d_Laura_dataSet(camera_size)
 
         ## 2. ground truth x generating
         # reconstruction_res          = camera_size
         reconstruction_res          = self.ptycho_data.get_reconstruction_size()
         reconstruction_shape        = (reconstruction_res, reconstruction_res)
-        print(f'recontruction shape: {reconstruction_shape}')
+        print(f'DPC recontruction shape: {reconstruction_shape}')
 
         ## 3. LED pattern select
         angle_range                     = angle_range
@@ -443,6 +544,78 @@ class DPC_test(object):
         plt.colorbar()
         plt.title('Phase: Reconstruction image')
         plt.savefig('_recon_img/DPC_Phase: Reconstruction image.png')
+
+        plt.figure()
+        plt.imshow(np.log(np.abs(np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()), norm="ortho")))), cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Log DPC FFT')
+        plt.savefig('_recon_img/DPC FFT image.png')
+
+        return x_est
+    
+    def dark_field_with_DPCimg(self, camera_size, bright_angle_range:np.ndarray, dark_angle_range:np.ndarray, dark_radius,
+            bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= 1,
+            dark_n_iter= 100, dark_linear_n_iter= 5, dark_lr= 1,
+            dark_reconstruction:bool= False):
+        print('Dark Field test \n----------------------')
+
+        initial_est = self.DPC_img(camera_size= camera_size, angle_range= bright_angle_range, n_iter= bright_n_iter, GD_n_iter= bright_linear_n_iter,lr= bright_lr)
+        initial_est = np.fft.fft2(initial_est, norm="ortho")
+        
+        # multiplex_led_array, dark_reconstruction_shape             = self.ptycho_data.get_dark_field_multiplex_led_array(angle_range= dark_angle_range, radius= dark_radius, show_angle_map= True)
+        multiplex_led_array, dark_reconstruction_shape             = self.ptycho_data.get_multiplex_led_array_by_radius(angle_range= dark_angle_range, radius= dark_radius, show_angle_map= True)
+        y                               = self.ptycho_data.multiplex_image_select_by_array(multiplex_led_array= multiplex_led_array)
+        y                               = cp.array(y)
+
+        probe                       = cp.array(self.ptycho_data.get_pupil_mask())
+        total_shifts_pair           = self.ptycho_data.total_shifts_pair
+
+        if dark_reconstruction:
+            reconstruction_shape    = dark_reconstruction_shape
+            initial_est_angle        = interpolate_img(np.angle(initial_est), reconstruction_shape[0])
+            initial_est_amp         = interpolate_img(np.abs(initial_est), reconstruction_shape[0])
+            initial_est             = cp.array(P2R(initial_est_amp,initial_est_angle)).astype(cp.complex128)
+        else:
+            reconstruction_shape   = initial_est.shape
+        print(f'Dark recontruction shape: {reconstruction_shape}')
+
+        pr_model                = phaseretrieval.MultiplexedPhaseRetrieval(probe= probe,multiplex_led_mask= multiplex_led_array, shifts_pair= total_shifts_pair, reconstruct_shape= reconstruction_shape)
+
+        ppr_method              = algos.PerturbativePhase(pr_model)
+        # x_est                   = ppr_method.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= dark_n_iter, linear_n_iter= dark_linear_n_iter, lr= dark_lr)
+        x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= dark_n_iter, linear_n_iter= dark_linear_n_iter)
+        x_est                   = np.fft.ifft2(x_est, norm="ortho")
+
+        plt.figure()
+        plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Intensity: Reconstructed image')
+        plt.savefig('_recon_img/Intensity: Dark_field_DPC Reconstructed image.png')
+
+        plt.figure()
+        plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Phase: Reconstruction image')
+        plt.savefig('_recon_img/Phase: Dark_field_DPC Reconstruction image.png')
+
+        plt.figure()
+        plt.imshow(np.log(np.abs(np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()), norm="ortho")))), cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('Log Dark field+DPC FFT')
+        plt.savefig('_recon_img/FFT: Dark_field_DPC FFT image.png')
+
+        plt.figure()
+        plt.imshow((np.abs(np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()), norm="ortho"))) - np.abs(np.fft.fftshift(np.fft.fft2(np.angle(initial_est.get()), norm="ortho"))))>0, cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('FFT Enhancement')
+        plt.savefig('_recon_img/FFT Enhancement.png')
+
+        plt.figure()
+        plt.imshow((np.abs(np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()), norm="ortho"))) - np.abs(np.fft.fftshift(np.fft.fft2(np.angle(initial_est.get()), norm="ortho"))))<0, cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title('FFT Loss')
+        plt.savefig('_recon_img/FFT Loss.png')
+
         return x_est
 
 ## ================================================== END Test Class ==================================================
@@ -454,19 +627,58 @@ def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)/math.pi * 180
     return(rho, phi)
+
+def interpolate_img(img, high_res:int):
+    img_size         = img.shape[0]
+    
+    x_idx_array      = np.arange(-math.floor(img_size/2),math.ceil(img_size/2),1)
+    high_x_idx_array = np.arange(-math.floor(img_size/2),math.ceil(img_size/2),img_size/high_res)
+
+    inter_img_f      = interpolate.interp2d(x_idx_array, x_idx_array, img.get(), kind='linear')
+    inter_img        = inter_img_f(high_x_idx_array, high_x_idx_array)
+
+    return inter_img
+
+def P2R(radii, angles):
+    return radii * np.exp(1j*angles)
 ## ============ functions ============
 
 
 
 if __name__ == '__main__':
+    # dataset = ptycho2d_Laura_dataSet(256)
+    # angle_range = np.array([[0,180],[180,360]])
+    # radius      = 5
+    # dataset.get_dark_field_multiplex_led_array(angle_range= angle_range, radius= radius, show_angle_map= True)
+
+
+    # ====================================================================================================
     DPC_obj = DPC_test()
     # 1. FPM No multiplex
     # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 20,lr= None)
-    # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 200,lr= 1e-4)
+    # DPC_obj.FPM_img(camera_size= 256, n_iter= 1, GD_n_iter= 5,lr= 1e-4)
 
     ## 2. DPC multiplex
     # angle_range = np.array([[0,180],[180,360]])
     # angle_range = np.array([[270,90],[90,270]])
     # angle_range = np.array([[0,180],[180,360],[270,90],[90,270]])
-    angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
-    DPC_obj.DPC_img(camera_size= 256, angle_range= angle_range, n_iter= 1, GD_n_iter= 5,lr= 1e-4)    
+    # angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
+    # DPC_obj.DPC_img(camera_size= 256, angle_range= angle_range, n_iter= 1, GD_n_iter= 5,lr= 1e-4)    
+
+    ## 3. Dark field exploration with DPC img
+    bright_angle_range = np.array([[0,180],[180,360]])
+    # bright_angle_range = np.array([[270,90],[90,270]])
+    # bright_angle_range = np.array([[0,180],[180,360],[270,90],[90,270]])
+    # dark_angle_range   = np.array([[0,180],[180,360]])
+    # dark_angle_range   = np.array([[270,90],[90,270]])
+    # dark_angle_range = np.array([[0,180],[180,360],[270,90],[90,270]])
+    dark_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
+    inner_dark_radius  = 1.5
+    outer_dark_radius  = 4.5
+    dark_radius        = np.array([np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))])
+
+    DPC_obj.dark_field_with_DPCimg(camera_size=256,
+    bright_angle_range= bright_angle_range, dark_angle_range= dark_angle_range, dark_radius= dark_radius,
+    bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= None,
+    dark_n_iter= 5, dark_linear_n_iter= 100, dark_lr= None,
+    dark_reconstruction= False)
