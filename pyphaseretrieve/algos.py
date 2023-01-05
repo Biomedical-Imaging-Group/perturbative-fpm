@@ -19,7 +19,7 @@ class GradientDescent:
         self.current_iter = 0
         self.loss_list = []
 
-    def iterate(self, y, initial_est=None, n_iter=100, lr=1) -> np.ndarray:
+    def iterate(self, y, initial_est=None, n_iter=100, lr=1):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -39,8 +39,27 @@ class GradientDescent:
                 actual_lr = self.find_lr(x_est, y, descent_direction, grad, loss, initial_lr=lr)
             else:
                 actual_lr = lr
-
             x_est += actual_lr * descent_direction
+        return x_est 
+
+    def iterate_local_GradientDescent(self, y, initial_est=None, n_iter=100, lr=1):        
+        if initial_est is not None:
+            x_est = np.copy(initial_est)
+        else:
+            x_est = np.ones(shape= self.x_shape, dtype= np.complex128)
+
+        pr_model_linop_list = self.pr_model.get_linop_list()
+
+        for i_iter in range(n_iter):
+            loss = self.loss_func.compute_loss(y, self.pr_model, x_est, compute_grad= False)
+            self.loss_list.append(loss)
+
+            current_idx = 0
+            for idx, i_linop in enumerate(pr_model_linop_list):
+                _, grad = self.loss_func.compute_loss(y[current_idx:current_idx+self.pr_model.probe_shape[0],:], PhaseRetrievalBase(i_linop), x_est)
+                x_est += lr * (-grad)
+                current_idx += self.pr_model.probe_shape[0]
+            self.current_iter += 1
         return x_est 
 
     def find_lr(self, x_est, y, descent_direction, 
@@ -147,7 +166,6 @@ class PerturbativePhase:
             for _ in range(linear_n_iter):
                 grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
                 epsilon = epsilon - lr*grad
-
             x_est += epsilon
         return x_est
 
@@ -177,7 +195,6 @@ class PerturbativePhase:
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
             epsilon = epsilon_expand[:self.pr_model.in_shape[0]] + epsilon_expand[self.pr_model.in_shape[0]:]* 1j
-
             x_est += epsilon
         return x_est
 
