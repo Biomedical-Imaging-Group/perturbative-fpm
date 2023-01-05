@@ -196,7 +196,6 @@ class PerturbativePhase:
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
             epsilon = epsilon_expand[:self.pr_model.in_shape[0]] + epsilon_expand[self.pr_model.in_shape[0]:]* 1j
-
             x_est += epsilon
         return x_est
 
