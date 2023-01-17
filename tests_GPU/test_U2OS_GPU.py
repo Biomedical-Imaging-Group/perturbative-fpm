@@ -13,17 +13,20 @@ import matplotlib.cm as cm
 import matplotlib.patches as patches
 from scipy import interpolate
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 from pyphaseretrieve.linop  import *
 from pyphaseretrieve        import algos
 from pyphaseretrieve        import phaseretrieval
 from pyphaseretrieve        import loss
 
-DAT_FILE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/DPC_dataset/' ## Local PATH
+DAT_FILE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/U2OS_unstained/' ## Local PATH
 
 
 ## ================================================== Dataset  ====================================================
 ## ================================================================================================================
-class HeLa_cell_dataSet(object):
+class U2OS_cell_dataSet(object):
     def __init__(self, camera_size:int) -> None:
         ## Experiment Setup Parameters Setting (distance and length unit: um)
         # Optical system
@@ -37,7 +40,7 @@ class HeLa_cell_dataSet(object):
         self.CAMERA_V_RES       = 2160
         # LED system
         self.led_pitch          = 4000
-        self.led_d_z            = 64000
+        self.led_d_z            = 67500
         self.led_dia_number     = 19
         self.total_n_img        = 293
         ## generate experimental setup
@@ -50,7 +53,7 @@ class HeLa_cell_dataSet(object):
         self.total_shifts_h_map ,self.total_shifts_v_map , self.total_shifts_pair = self.get_shiftsMap_shiftsPairs()
 
     # ----------------------- Default setup -----------------------
-    def get_fourierResolution(self) -> tuple([float, float]):
+    def get_fourierResolution(self) -> float:
         img_pixel_size         = self.camera_pixel_Gsize/self.mag
         FoV                    = img_pixel_size*self.camera_size
         fourier_resolution     = 1/FoV
@@ -165,18 +168,20 @@ class HeLa_cell_dataSet(object):
 
         sinTheta_h_map      = led_h_d_map/led_to_sample_dist_map
         sinTheta_v_map      = led_v_d_map/led_to_sample_dist_map
-
-        shifts_h_map = np.round(sinTheta_h_map * led_r_map / self.wave_lambda / self.fourier_res)
-        shifts_v_map = np.round(sinTheta_v_map * led_r_map / self.wave_lambda / self.fourier_res)
-
-        n_used_led  = int(np.sum(led_r_map))
-        shifts_h    = shifts_h_map[led_r_map == 1]
-        shifts_v    = shifts_v_map[led_r_map == 1]
-        shifts_pair = np.concatenate([shifts_v.reshape(n_used_led,1),shifts_h.reshape(n_used_led,1)],axis=1)
-
+    
         if return_sinThetaMap_ledMap:
             return sinTheta_h_map, sinTheta_v_map, led_r_map
         else:
+            shifts_h_map = np.round(sinTheta_h_map * led_r_map / self.wave_lambda / self.fourier_res)
+            shifts_v_map = np.round(sinTheta_v_map * led_r_map / self.wave_lambda / self.fourier_res)
+
+            n_used_led  = int(np.sum(led_r_map))
+            shifts_h    = shifts_h_map[led_r_map == 1]
+            shifts_v    = shifts_v_map[led_r_map == 1]
+            shifts_pair = np.concatenate([shifts_v.reshape(n_used_led,1),shifts_h.reshape(n_used_led,1)],axis=1)
+            shifts_pair[145,:] = [0,0]
+            # shifts_pair[146,:] = [0,25]
+
             return shifts_h_map, shifts_v_map, shifts_pair
 
     # ----------------------- LEDs selection methods ----------------------- 
@@ -346,8 +351,7 @@ class HeLa_cell_dataSet(object):
                 y = np.concatenate([y,_crop_img_demean], axis=0)
         print('finish loading...')  
         
-        shifts_pair = self.total_shifts_pair[(img_index_array-1),0:2]
-        
+        shifts_pair = self.total_shifts_pair[(img_index_array-1),0:2]       
         return y, img_list, shifts_pair
         
     # ----------------------- Rendering ----------------------
@@ -402,7 +406,7 @@ class FPM_solver(object):
     def FPM(self, camera_size, n_iter= 5, lr= 1, cropping_center=[0,0], amp_based_or_not:bool = True,for_loop_or_not:bool = False):
         print('Full FPM Start \n----------------------')
         
-        self.dataset = HeLa_cell_dataSet(camera_size= camera_size)
+        self.dataset = U2OS_cell_dataSet(camera_size= camera_size)
 
         reconstruction_res          = self.dataset.get_reconstruction_size()
         reconstruction_shape        = (reconstruction_res,reconstruction_res)
@@ -418,7 +422,7 @@ class FPM_solver(object):
         initial_est                 = np.fft.fft2(initial_est, norm="ortho")
 
         if amp_based_or_not:
-            loss_function               = loss.loss_amplitude_based(epsilon= 1e-5)
+            loss_function               = loss.loss_amplitude_based(epsilon= 1e-4)
             gd_method                   = algos.GradientDescent(self.phase_model, loss_func= loss_function, line_search= None)
         else:
             gd_method                   = algos.GradientDescent(self.phase_model, loss_func= None, line_search= True)
@@ -430,14 +434,14 @@ class FPM_solver(object):
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
             plt.title('Intensity: Reconstructed image')
-            plt.savefig('_recon_img/HeLa_FPM_Intensity: Reconstructed image.png')
+            plt.savefig('_recon_img/U2OS_FPM_Intensity: Reconstructed image.png')
             plt.close()
 
             plt.figure()
             plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
             plt.colorbar()
             plt.title('Phase: Reconstruction image')
-            plt.savefig('_recon_img/HeLa_FPM_Phase: Reconstruction image.png')
+            plt.savefig('_recon_img/U2OS_FPM_Phase: Reconstruction image.png')
             plt.close()
 
             sum_bright_img = np.uint64(np.zeros_like(img_list[0]))
@@ -447,28 +451,78 @@ class FPM_solver(object):
             plt.imshow(sum_bright_img, cmap=cm.Greys_r)
             plt.colorbar()
             plt.title('Sum All Image')
-            plt.savefig('_recon_img/HeLa_FPM_Bright_Sum All Image.png')
+            plt.savefig('_recon_img/U2OS_FPM_Sum All Image.png')
             plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase Image, Filter out 99.99%')
+            plt.savefig('_recon_img/U2OS_FPM_Phase99: Reconstruction image.png')
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.title("Phase Grayscale Histogram")
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.savefig('_recon_img/U2OS_FPM_Phase Histogram.png')
+            plt.close()
+
         else:
+            file_path   = str('_FPM/amp_based')
+            file_header = str('/U2OS_FPM_')
+            file_iter   = str(f'n_iter={n_iter}, lr= {lr}.png')
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title(f'Intensity Amp-based: n_iter={n_iter}, lr= {lr}')
-            plt.savefig(f'_FPM[-125,300]/n_iter={n_iter}/Intensity 293 LEDs: n_iter={n_iter}, lr= {lr}.png')
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Intensity: ' + file_iter)
             plt.close()
 
             plt.figure()
             plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title(f'Phase Amp-based: n_iter={n_iter}, lr= {lr}')
-            plt.savefig(f'_FPM[-125,300]/n_iter={n_iter}/Phase 293 LEDs: n_iter={n_iter}, lr= {lr}.png')
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Phase Histogram: ' + file_iter)
             plt.close()
         return x_est
     
     def bright_FPM(self, camera_size, n_iter= 5, lr= 1, cropping_center=[0,0], amp_based_or_not:bool = True,for_loop_or_not:bool = False):
         print('Bright field FPM Start \n----------------------')
         
-        self.dataset = HeLa_cell_dataSet(camera_size= camera_size) 
+        self.dataset = U2OS_cell_dataSet(camera_size= camera_size) 
 
         reconstruction_res          = self.dataset.get_reconstruction_size(bright_field_NA= True)
         reconstruction_shape        = (reconstruction_res,reconstruction_res)
@@ -485,7 +539,7 @@ class FPM_solver(object):
         initial_est                 = np.fft.fft2(initial_est, norm="ortho")
 
         if amp_based_or_not:
-            loss_function               = loss.loss_amplitude_based(epsilon= 1e-5)
+            loss_function               = loss.loss_amplitude_based(epsilon= 1e-1)
             gd_method                   = algos.GradientDescent(self.phase_model, loss_func= loss_function, line_search= None)
         else:
             gd_method                   = algos.GradientDescent(self.phase_model, loss_func= None, line_search= True)
@@ -496,15 +550,15 @@ class FPM_solver(object):
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title('Intensity: Reconstructed image')
-            plt.savefig('_recon_img/HeLa_FPM_Bright_Intensity image.png')
+            plt.title('Intensity image')
+            plt.savefig('_recon_img/U2OS_FPM_Bright_Intensity image.png')
             plt.close()
 
             plt.figure()
             plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title('Phase: Reconstruction image')
-            plt.savefig('_recon_img/HeLa_FPM_Bright_Phase image.png')
+            plt.title('Phase image')
+            plt.savefig('_recon_img/U2OS_FPM_Bright_Phase image.png')
             plt.close()
 
             sum_bright_img = np.uint64(np.zeros_like(img_list[0]))
@@ -514,28 +568,78 @@ class FPM_solver(object):
             plt.imshow(sum_bright_img, cmap=cm.Greys_r)
             plt.colorbar()
             plt.title('Sum Bright Field Image')
-            plt.savefig('_recon_img/HeLa_FPM_Bright_Sum Bright Field Image.png')
+            plt.savefig('_recon_img/U2OS_FPM_Bright_Sum Bright Field Image.png')
             plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.995)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase Image, Filter out 99.995%')
+            plt.savefig('_recon_img/U2OS_FPM_Bright_Phase99: Reconstruction image.png')
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.title("Phase Grayscale Histogram")
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.995%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.savefig('_recon_img/U2OS_FPM_Bright_Phase Histogram.png')
+            plt.close()
+
         else:
+            file_path   = str('_bright_FPM/amp_based')
+            file_header = str('/U2OS_FPM_Bright_')
+            file_iter   = str(f'n_iter={n_iter}, lr= {lr}.png')
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title(f'Intensity Amp-based: n_iter={n_iter}, lr= {lr}')
-            plt.savefig(f'_FPM[-125,300]/n_iter={n_iter}/Intensity 293 LEDs: n_iter={n_iter}, lr= {lr}.png')
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Intensity: ' + file_iter)
             plt.close()
 
             plt.figure()
             plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title(f'Phase Amp-based: n_iter={n_iter}, lr= {lr}')
-            plt.savefig(f'_FPM[-125,300]/n_iter={n_iter}/Phase 293 LEDs: n_iter={n_iter}, lr= {lr}.png')
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + f'/n_iter={n_iter}' + file_header + 'Phase Histogram: ' + file_iter)
             plt.close()
         return x_est
 
 class DPC_and_darkField_solver(object):
     def __init__(self,camera_size:int) -> None:
         self.camera_size = camera_size
-        self.dataset     = HeLa_cell_dataSet(camera_size= camera_size)
+        self.dataset     = U2OS_cell_dataSet(camera_size= camera_size)
 
     def DPC(self, bright_field_angle_range:np.ndarray, n_iter= 1, linear_n_iter= 5, lr= 1, centre:list = [0,0], for_loop_or_not:bool = False):
         print('DPC start \n----------------------')
@@ -569,28 +673,55 @@ class DPC_and_darkField_solver(object):
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
             plt.title('Intensity: Reconstructed image')
-            plt.savefig('_recon_img/HeLa_DPC_Intensity image.png')
+            plt.savefig('_recon_img/U2OS_DPC_Intensity image.png')
             plt.close()
 
             plt.figure()
             plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
             plt.colorbar()
             plt.title('Phase: Reconstruction image')
-            plt.savefig('_recon_img/HeLa_DPC_Phase image.png')
+            plt.savefig('_recon_img/U2OS_DPC_Phase image.png')
             plt.close()
         else:
+            file_path   = str(f'_DPC/n_iter={n_iter}')
+            file_header = str('/U2OS_DPC_')
+            file_iter   = str(f'linear_n_iter={linear_n_iter}.png')
+
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title(f'Intensity GD: linear_n_iter={linear_n_iter}, n_iter={n_iter}, lr={lr}')
-            plt.savefig(f'_dpc_img/top_bottom_right_left/GD/n_iter={n_iter}/Intensity GD n_iter={n_iter}, linear_n_iter={linear_n_iter}, lr={lr}.png')
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Intensity: ' + file_iter)
             plt.close()
 
             plt.figure()
             plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title(f'Phase GD: linear_n_iter={linear_n_iter}, n_iter={n_iter}, lr={lr}')
-            plt.savefig(f'_dpc_img/top_bottom_right_left/GD/n_iter={n_iter}//Phase GD n_iter={n_iter}, linear_n_iter={linear_n_iter}, lr={lr}.png')
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
             plt.close()
         return x_est
 
@@ -598,7 +729,7 @@ class DPC_and_darkField_solver(object):
             self, bright_field_angle_range:np.ndarray, dark_multi_angle_range_list:list, dark_multi_radius_range_list:list,
             bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= None,
             dark_n_iter= 100, dark_linear_n_iter= 5, dark_lr= None,
-            centre:list= [0,0]):
+            centre:list= [0,0], for_loop_or_not:bool = False):
 
         initial_est = self.DPC(bright_field_angle_range= bright_field_angle_range, n_iter= bright_n_iter, linear_n_iter= bright_linear_n_iter, lr= bright_lr, centre= centre)
         initial_est = np.fft.fft2(initial_est, norm="ortho")
@@ -631,18 +762,60 @@ class DPC_and_darkField_solver(object):
 
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
-        plt.figure()
-        plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
-        plt.colorbar()
-        plt.title('Intensity: Reconstructed image')
-        plt.savefig('_recon_img/HeLa_Dark_and_DPC_Intensity image.png')
+        if for_loop_or_not == False:
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Intensity: Reconstructed image')
+            plt.savefig('_recon_img/U2OS_Dark_and_DPC_Intensity image.png')
 
-        plt.figure()
-        plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
-        plt.colorbar()
-        plt.title('Phase: Reconstruction image')
-        plt.savefig('_recon_img/HeLa_Dark_and_DPC_Phase image.png')
-        plt.close('all')
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase: Reconstruction image')
+            plt.savefig('_recon_img/U2OS_Dark_and_DPC_Phase image.png')
+            plt.close('all')
+        else:
+            file_path   = str(f'_DPC_Dark/dark_n_iter={dark_n_iter}')
+            file_header = str('/U2OS_Dark_and_DPC_')
+            file_iter   = str(f'dark_linear_n_iter={dark_linear_n_iter}.png')
+
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Intensity: ' + file_iter)
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
+            plt.close()
 
         return x_est
 
@@ -680,27 +853,49 @@ def P2R(radii, angles):
 
 if __name__ == '__main__':
     ## clean folder
-    delete_file('led_pattern')
-    delete_file('_recon_img')
+    # delete_file('led_pattern')
+    # delete_file('_recon_img')   
     # ====================================================================================================
     # ====================================================================================================
     ## 1. FPM
     FPM_test = FPM_solver()
-    # FPM_test.FPM(camera_size= 256, n_iter= 1, cropping_center=[-125,300], lr= 1e-2)
-    # FPM_test.bright_FPM(camera_size= 256, n_iter= 1, cropping_center=[-125,300], lr= 1e-2)
+    # cropping_center = [0,0]
+    # FPM_test.bright_FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not=False, lr= 1)
+    # for n_iter in [100]:
+    #     delete_file(f'_bright_FPM/amp_based/n_iter={n_iter}') 
+    #     for lr in np.geomspace(1e-1, 1e-7, num=7):
+    #         FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=True, lr= lr, for_loop_or_not= True)
+    # for n_iter in [10,25,50,100]:
+    #     delete_file(f'_bright_FPM/Intensity_based/n_iter={n_iter}') 
+    #     FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
+
+
+    # FPM_test.FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not= True, lr= 1e-2)
+    # for n_iter in [1,2,3,4,5,10,25]:
+    #     delete_file(f'_FPM/intensity_based/n_iter={n_iter}') 
+    #     FPM_test.FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
+    # for n_iter in [100]:
+        # delete_file(f'_FPM/amp_based/n_iter={n_iter}') 
+        # for lr in np.geomspace(1e-1, 1e-3, num=3):
+        #     FPM_test.FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=True, lr= lr, for_loop_or_not= True)
     # ====================================================================================================
     # ====================================================================================================
     ## 2. DPC
     DPC_and_darkField_test = DPC_and_darkField_solver(camera_size= 256)
 
-    # bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
-    # DPC_and_darkField_test.DPC(bright_field_angle_range= bright_angle_range, n_iter= 1, linear_n_iter= 3, lr= None, centre=[-125,300])
+    bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
+    # DPC_and_darkField_test.DPC(bright_field_angle_range= bright_angle_range, n_iter= 1, linear_n_iter= 5, lr= None, centre=[0,0])
+    # for n_iter in [1,2,3,4,5]:
+    #     delete_file(f'_DPC/n_iter={n_iter}')
+    #     for linear_n_iter in [1,3,5,7,9]:
+    #         DPC_and_darkField_test.DPC(bright_field_angle_range= bright_angle_range, n_iter= n_iter, linear_n_iter= linear_n_iter, lr= None, 
+    #         centre=[0,0], for_loop_or_not= True)
     # ====================================================================================================
     # ====================================================================================================
     ## 3. DPC and Dark Field
     DPC_and_darkField_test = DPC_and_darkField_solver(camera_size= 256)
 
-    centre =[-125,300]
+    centre =[0,0]
 
     bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
 
@@ -711,9 +906,18 @@ if __name__ == '__main__':
     multi_angle_range_list  = [[0,180],[180,360],[270,90],[90,270]]
     multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range]
 
-    # DPC_and_darkField_test.dark_field_with_DPC(
-    #     bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list,
-    #     bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= None,
-    #     dark_n_iter= 1, dark_linear_n_iter= 15, dark_lr= None,
-    #     centre= centre
-    # )
+    DPC_and_darkField_test.dark_field_with_DPC(
+        bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list,
+        bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= None,
+        dark_n_iter= 4, dark_linear_n_iter= 4, dark_lr= None,
+        centre= centre
+    )
+
+    # for dark_n_iter in [2,4,6]:
+    #     for dark_linear_n_iter in [2,4,6,8,10,12,14]:
+    #         DPC_and_darkField_test.dark_field_with_DPC(
+    #             bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list,
+    #             bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= None,
+    #             dark_n_iter= dark_n_iter, dark_linear_n_iter= dark_linear_n_iter, dark_lr= None,
+    #             centre= centre, for_loop_or_not= True
+    #         )
