@@ -42,12 +42,13 @@ class FCC_dataset(object):
         self.probe_position       = np.array(self.mat_data['probe_positions'])  # with unit 27.43nm
         self.measured_intensities = np.array(self.mat_data['measured_intensities'])
         self.detector_mask        = np.array(self.mat_data['detector_mask'])
-
+        # Initialize experimental parameters
         self.experimentSetup()
         self.crop_measured_intensities()
         self.crop_detector_mask()
         self.crop_probe()
 
+    # ----------------------- Initialize experimental parameters -----------------------
     def experimentSetup(self):
         self.wave_lambda                           = self.get_photon_lambda()
         self.original_pixel_resolution             = self.get_original_pixel_resolution()
@@ -58,7 +59,26 @@ class FCC_dataset(object):
         self.centre_pos_pixel                      = self.get_centre_position()
 
         self.total_shifts_v ,self.total_shifts_h , self.total_shifts_pair = self.get_shifts_pairs()
+    
+    def crop_measured_intensities(self):
+        v_size, h_size = self.measured_intensities[:,:,0].shape
+        v_start = int(v_size//2 - (self.camera_size//2))
+        h_start = int(h_size//2 - (self.camera_size//2))
+        self.measured_intensities =  self.measured_intensities[v_start:v_start+self.camera_size, h_start:h_start+self.camera_size,:]
+    
+    def crop_detector_mask(self):
+        v_size, h_size = self.detector_mask.shape
+        v_start = int(v_size//2 - (self.camera_size//2))
+        h_start = int(h_size//2 - (self.camera_size//2))
+        self.detector_mask =  self.detector_mask[v_start:v_start+self.camera_size, h_start:h_start+self.camera_size]
 
+    def crop_probe(self):
+        v_size, h_size = self.probe.shape
+        v_start = int(v_size//2 - (self.camera_size//2))
+        h_start = int(h_size//2 - (self.camera_size//2))
+        self.probe =  self.probe[v_start:v_start+self.camera_size, h_start:h_start+self.camera_size]
+
+    # ----------------------- Default setup -----------------------
     def get_photon_lambda(self):
         e = 1.602176634e-19
         h = 6.62607015e-34
@@ -97,6 +117,7 @@ class FCC_dataset(object):
         centre_pos_pixel = [x_center_pixel,y_center_pixel]
         return centre_pos_pixel
     
+    # ----------------------- Total shifts and shifts pairs ----------------------- 
     def get_shifts_pairs(self):
         shifts_v_nm = self.probe_position[:,0]*self.original_pixel_resolution
         shifts_h_nm = self.probe_position[:,1]*self.original_pixel_resolution
@@ -107,6 +128,7 @@ class FCC_dataset(object):
         shifts_pairs = np.concatenate([shifts_v.reshape(self.total_probe_n,1), shifts_h.reshape(self.total_probe_n,1)],axis=1)
         return shifts_v, shifts_h, shifts_pairs
 
+    # ----------------------- Images selection methods ----------------------- 
     def select_images(self, x_upper_um=25 ,x_lower_um= -25, y_upper_um= 15, y_lower_um= -15, scatter_plot:bool= False, remove_background:bool= False, concatenating_image:bool= True):
         img_idx_array = np.linspace(0, self.total_probe_n-1, self.total_probe_n)
         cat_imgIDX_shiftsPair = np.concatenate((img_idx_array.reshape(self.total_probe_n,1),self.total_shifts_pair), axis=1)
@@ -170,24 +192,6 @@ class FCC_dataset(object):
         else:
             return img_list, shifts_pairs, img_idx, reconstruction_shape
     
-    def crop_measured_intensities(self):
-        v_size, h_size = self.measured_intensities[:,:,0].shape
-        v_start = int(v_size//2 - (self.camera_size//2))
-        h_start = int(h_size//2 - (self.camera_size//2))
-        self.measured_intensities =  self.measured_intensities[v_start:v_start+self.camera_size, h_start:h_start+self.camera_size,:]
-    
-    def crop_detector_mask(self):
-        v_size, h_size = self.detector_mask.shape
-        v_start = int(v_size//2 - (self.camera_size//2))
-        h_start = int(h_size//2 - (self.camera_size//2))
-        self.detector_mask =  self.detector_mask[v_start:v_start+self.camera_size, h_start:h_start+self.camera_size]
-
-    def crop_probe(self):
-        v_size, h_size = self.probe.shape
-        v_start = int(v_size//2 - (self.camera_size//2))
-        h_start = int(h_size//2 - (self.camera_size//2))
-        self.probe =  self.probe[v_start:v_start+self.camera_size, h_start:h_start+self.camera_size]
-
     # ----------------------- Render f ----------------------
     # -------------------------------------------------------
     def mat2img(self):
@@ -267,13 +271,13 @@ class FCC_dataset(object):
 ## ================================================== END Dataset =================================================
 ## ================================================================================================================
 
-class test_Xray_ptycho(object):
+class XrayPM_solver(object):
     def __init__(self) -> None:
-        print('Ptycho2D test with GD Start\n======================')
+        print('X-ray PM solver\n======================')
         pass    
 
-    def real_data_test(self, camera_size:int, n_iter:int, lr):
-        print('REAL dataset test \n----------------------')
+    def xrayPM(self, camera_size:int, n_iter:int, lr):
+        print('FCC dataset test \n----------------------')
         ## 1. use experimental setup from Laura dataset
         self.ptycho_data            = FCC_dataset(camera_size)
 
@@ -285,7 +289,7 @@ class test_Xray_ptycho(object):
         self.ptycho_2d_model        = phaseretrieval.XRay_Ptychography2d(probe= probe, shifts_pair= shifts_pairs, reconstruct_shape= reconstruct_shape)
 
         ## 3. solver
-        loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
+        loss_function               = loss.loss_amplitude_based(epsilon=1e-4)
         GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration= "conjugate gradient")
 
         ## 6. solve the problem
@@ -323,13 +327,8 @@ class test_Xray_ptycho(object):
 
 if __name__ == '__main__':
 
-    x_ray_test = test_Xray_ptycho()
+    XrayPM_test = XrayPM_solver()
     # for _, n_iter in enumerate([100,200,300]):
     #     for lr in np.geomspace(1e-3, 1e-6, num=4):
-    #         x_ray_test.real_data_test(camera_size= 512, n_iter= n_iter, lr= lr)
-    x_ray_test.real_data_test(camera_size= 512, n_iter= 300, lr= 1e-5)
-
-    # plt.figure()
-    # plt.imshow(np.abs(x_ray_test.ptycho_2d_model.get_probe_overlap_map().get()), cmap= cm.Greys_r)
-    # plt.colorbar()
-    # plt.savefig(f'overlap_img.png')
+    #         XrayPM_test.xrayPM(camera_size= 512, n_iter= n_iter, lr= lr)
+    XrayPM_test.xrayPM(camera_size= 512, n_iter= 300, lr= 1e-5)

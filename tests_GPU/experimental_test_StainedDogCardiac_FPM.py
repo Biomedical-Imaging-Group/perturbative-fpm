@@ -262,7 +262,7 @@ class FPM_soler(object):
         x = (cp.random.randn(in_dim, in_dim) + 1j * cp.random.randn(in_dim, in_dim))
         return x
 
-    def model_test(self, camera_size:int, img_idx_array, n_iter:int, lr, spec_method:bool = False):
+    def simulation_test(self, camera_size:int, img_idx_array, n_iter:int, lr, spec_method:bool = False):
         print('Model test \n----------------------')
         self.dataset                = DogCardiac_dataset(camera_size= camera_size)
 
@@ -273,20 +273,15 @@ class FPM_soler(object):
         x                       = self.generate_rand2d_x(reconstruction_res)
         x_ft                    = np.fft.fft2(x, norm="ortho")
 
-        ## 3. ptycho2d model create
         probe                   = cp.array(self.dataset.get_pupil_mask())
         shifts_pair             = self.dataset.total_shifts_pair[(img_idx_array-1),0:2]
-        self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe = probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+        self.phase_model        = phaseretrieval.FourierPtychography2d(probe = probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+        y                       = np.abs(self.phase_model.apply(x_ft))**2
 
-        ## 4. base on exsiting paras, generate y
-        y                       = np.abs(self.ptycho_2d_model.apply(x_ft))**2
-
-        ## 5. GD solver
         loss_function           = loss.loss_amplitude_based(epsilon=1e-1)
-        GD_method               = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= True, acceleration=None)
-        Spec_method             = algos.SpectralMethod(self.ptycho_2d_model)
+        GD_method               = algos.GradientDescent(self.phase_model, loss_func= loss_function, line_search= True, acceleration=None)
+        Spec_method             = algos.SpectralMethod(self.phase_model)
 
-        ## 6. solve the problem
         if spec_method:
             initial_est             = cp.random.randn(reconstruction_res,reconstruction_res)
             initial_est             = Spec_method.iterate(y= y, initial_est= initial_est)
@@ -297,13 +292,11 @@ class FPM_soler(object):
         x_est                   = GD_method.iterate(y = y, initial_est = initial_est, n_iter = n_iter, lr = lr)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
-        ## 7. result
-        print("Result correlation:")
         _x      = np.ravel(x)
         _x_est  = np.ravel(x_est)
+        print("Result correlation:")
         print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
     
-
     def FPM(self, camera_size:int, n_iter:int, lr, centre:list= [0,0], img_idx_array:np.ndarray= None, amp_based_or_not:bool= True, spec_method:bool = False):
         print('FPM test \n----------------------')
         self.dataset            = DogCardiac_dataset(camera_size)
@@ -315,21 +308,21 @@ class FPM_soler(object):
         if img_idx_array is not None:
             img_index_array = img_idx_array
         else:
-            img_index_array               = np.linspace(1,293,293).astype(int)
+            img_index_array = np.linspace(1,293,293).astype(int)
 
         probe                       = cp.array(self.dataset.get_pupil_mask())
         y, img_list, shifts_pair    = self.dataset.select_image_by_imgIndex(img_index_array= img_index_array, centre= centre)
         y                           = cp.array(y)
-        self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+        self.phase_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
 
         if amp_based_or_not:
-            loss_function               = loss.loss_amplitude_based(epsilon=1e-4)
-            GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None)
+            loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
+            GD_method                   = algos.GradientDescent(self.phase_model, loss_func= loss_function, line_search= None)
         else:
-            GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= None, line_search= True)
+            GD_method                   = algos.GradientDescent(self.phase_model, loss_func= None, line_search= True)
 
         if spec_method:
-            Spec_method             = algos.SpectralMethod(self.ptycho_2d_model)
+            Spec_method             = algos.SpectralMethod(self.phase_model)
             initial_est             = cp.random.randn(reconstruction_res,reconstruction_res)
             initial_est             = Spec_method.iterate(y= y, initial_est= initial_est)
         else:
@@ -367,14 +360,12 @@ class FPM_soler(object):
         probe                       = cp.array(self.dataset.get_pupil_mask())
         y, img_list, shifts_pair    = self.dataset.select_image_by_imgIndex(img_index_array= bright_LED_index_array, centre= centre)
         y                           = cp.array(y)
-        self.ptycho_2d_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+        self.phase_model            = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
 
-        ## 5. GD solver
         loss_function               = loss.loss_amplitude_based(epsilon=1e-4)
-        GD_method                   = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function)
-        Spec_method                 = algos.SpectralMethod(self.ptycho_2d_model)
+        GD_method                   = algos.GradientDescent(self.phase_model, loss_func= loss_function)
+        Spec_method                 = algos.SpectralMethod(self.phase_model)
 
-        ## 6. solve the problem
         if spec_method:
             initial_est             = cp.random.randn(reconstruction_res,reconstruction_res)
             initial_est             = Spec_method.iterate(y= y, initial_est= initial_est)
@@ -385,7 +376,6 @@ class FPM_soler(object):
         x_est                       = GD_method.iterate(y=y, initial_est=initial_est, n_iter = n_iter, lr = lr) 
         x_est                       = np.fft.ifft2(x_est, norm="ortho")
 
-        ## 7. result
         plt.figure()
         plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
         plt.colorbar()
@@ -399,12 +389,10 @@ class FPM_soler(object):
         plt.savefig('_recon_img/DogCardiac_Bright_FPM_Phase image.png')
         return x_est
     
-    def model_test_withautoshifts(self, camera_size:int, n_img:int, n_iter:int, lr, spec_method:bool = False) -> None:
+    def phase_model_autoshifts_test(self, camera_size:int, n_img:int, n_iter:int, lr, spec_method:bool = False) -> None:
         print('Model test without shifts assignment \n----------------------')
-        ## 1. use experimental setup from Laura dataset
         self.dataset        = DogCardiac_dataset(camera_size)
 
-        ## 2. ground truth x generating
         reconstruction_res          = self.dataset.get_reconstruction_size()
         reconstruction_shape        = (reconstruction_res, reconstruction_res)
         print(f'recontruction shape: {reconstruction_shape}')
@@ -412,20 +400,15 @@ class FPM_soler(object):
         x                       = self.generate_rand2d_x(reconstruction_res)
         x_ft                    = np.fft.fft2(x, norm="ortho")
 
-        ## 3. ptycho2d model create
         probe                   = cp.array(self.dataset.get_pupil_mask())
-        self.ptycho_2d_model    = phaseretrieval.FourierPtychography2d(probe= probe, reconstruct_shape= reconstruction_shape, n_img= n_img)
-        print(f'overlap rate: {self.ptycho_2d_model.get_overlap_rate()}')
+        self.phase_model        = phaseretrieval.FourierPtychography2d(probe= probe, reconstruct_shape= reconstruction_shape, n_img= n_img)
+        print(f'overlap rate: {self.phase_model.get_overlap_rate()}')
+        y                       = cp.abs(self.phase_model.apply(x_ft))**2
 
-        ## 4. base on exsiting paras, generate y
-        y                       = cp.abs(self.ptycho_2d_model.apply(x_ft))**2
-
-        ## 5. GD solver
         loss_function           = loss.loss_amplitude_based(epsilon=1e-1)
-        GD_method               = algos.GradientDescent(self.ptycho_2d_model, loss_func= loss_function, line_search= None, acceleration=None)
-        Spec_method             = algos.SpectralMethod(self.ptycho_2d_model)
+        GD_method               = algos.GradientDescent(self.phase_model, loss_func= loss_function, line_search= None, acceleration=None)
+        Spec_method             = algos.SpectralMethod(self.phase_model)
 
-        ## 6. solve the problem
         if spec_method:
             initial_est             = cp.random.randn(reconstruction_res,reconstruction_res)
             initial_est             = Spec_method.iterate(y= y, initial_est= initial_est)
@@ -436,14 +419,13 @@ class FPM_soler(object):
         x_est                   = GD_method.iterate(y= y, initial_est= initial_est, n_iter= n_iter, lr= lr)
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
-        ## 7. result
-        print("Result correlation:")
         _x      = np.ravel(x)
         _x_est  = np.ravel(x_est)
+        print("Result correlation:")
         print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
 
-        print("Result without optimize correlation:")
         _x_init  = np.ravel(np.fft.ifft2(initial_est, norm="ortho"))
+        print("Result without optimize correlation:")
         print(np.abs( (_x_init.T.conj() @ _x) /  (np.linalg.norm(_x_init)*np.linalg.norm(_x)) ))
 
 ## ================================================== END Test Class ==================================================
@@ -476,24 +458,22 @@ def cart2pol(x, y):
 
 
 if __name__ == '__main__':
-    dataset = DogCardiac_dataset(camera_size= 256)
-    # print(dataset.get_reconstruction_size(bright_field_NA=True))
     ## clean folder
     # delete_file('led_pattern')
     # delete_file('_recon_img')   
     # ====================================================================================================
     # ====================================================================================================
     ## 1. FPM
-    # FPM_test = FPM_soler()
+    FPM_test = FPM_soler()
 
     # Test 1: model test
     # img_idx_array = np.linspace(1,293,293).astype(int)
-    # FPM_test.model_test(camera_size= 100, img_idx_array= img_idx_array, n_iter= 100, lr= 1)
+    # FPM_test.simulation_test(camera_size= 100, img_idx_array= img_idx_array, n_iter= 100, lr= 1)
 
     # Test 2: real data
     centre = [-50,450]
-    # FPM_test.FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1e-4, spec_method= False)
+    FPM_test.FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1e-3, amp_based_or_not=True, spec_method= False)
     # FPM_test.Bright_FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1, spec_method= False)
 
     # Test 3: auto shift
-    # ptycho2d_test.model_test_withautoshifts(camera_size= 64, n_img= 17**2, n_iter= 500, lr= 0.046)  # 64, 17**2, 200, 0.0457
+    # ptycho2d_test.phase_model_autoshifts_test(camera_size= 64, n_img= 17**2, n_iter= 500, lr= 0.046)  # 64, 17**2, 200, 0.0457
