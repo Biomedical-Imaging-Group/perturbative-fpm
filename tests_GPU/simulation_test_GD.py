@@ -106,7 +106,7 @@ if __name__ == '__main__':
     GD_test = GD_algos_test()
 
     GD_test.test_rand1d_case()
-    print('---------------')
-    GD_test.test_Ptychography1d_case_without_spectral()
-    print('---------------')
-    GD_test.test_Ptychography1d_case_with_spectral()
+    # print('---------------')
+    # GD_test.test_Ptychography1d_case_without_spectral()
+    # print('---------------')
+    # GD_test.test_Ptychography1d_case_with_spectral()

@@ -516,6 +516,90 @@ class FPM_solver(object):
             plt.close()
         return x_est
     
+    def FPM_PPR(self, camera_size:int, n_iter:int, linear_n_iter, lr, centre:list= [0,0], img_idx_array:np.ndarray= None, for_loop_or_not:bool = False):
+        print('FPM test \n----------------------')
+        self.dataset                = HeLa_cell_dataSet(camera_size)
+
+        reconstruction_res          = self.dataset.get_reconstruction_size()
+        reconstruction_shape        = (reconstruction_res, reconstruction_res)
+        print(f'recontruction shape: {reconstruction_shape}')
+
+        if img_idx_array is not None:
+            img_index_array = img_idx_array
+        else:
+            img_index_array = np.linspace(1,293,293).astype(int)
+
+        probe                       = cp.array(self.dataset.get_pupil_mask())
+        y, img_list, shifts_pair    = self.dataset.select_image_by_imgIndex(img_index_array= img_index_array, centre= centre)
+        y                           = cp.array(y)
+        self.phase_model            = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+
+        initial_est                 = cp.ones(shape= reconstruction_shape, dtype=np.complex128) 
+        initial_est                 = np.fft.fft2(initial_est, norm="ortho")
+
+        ppr_method                  = algos.PerturbativePhase(self.phase_model)
+        if lr is not None:
+            x_est                   = ppr_method.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter, lr=lr)
+        else:
+            x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter)
+        
+        x_est                       = np.fft.ifft2(x_est, norm="ortho")
+
+        if for_loop_or_not == False:
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Intensity: Reconstructed image')
+            plt.savefig('_recon_img/HeLa_FPM_Intensity image.png')
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase: Reconstruction image')
+            plt.savefig('_recon_img/HeLa_FPM__Phase image.png')
+        else:
+            file_path   = str(f'_FPM_PPR/CGD/n_iter={n_iter}')
+            file_header = str('/HeLa_FPM_')
+            file_iter   = str(f'linear_n_iter={linear_n_iter}.png')
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Intensity: ' + file_iter)
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
+            plt.close()
+
+        return x_est
+    
     def bright_FPM(self, camera_size, n_iter= 5, lr= 1, cropping_center=[0,0], amp_based_or_not:bool = True,for_loop_or_not:bool = False):
         print('Bright field FPM Start \n----------------------')
         
@@ -782,12 +866,12 @@ def P2R(radii, angles):
 if __name__ == '__main__':
     ## clean folder
     # delete_file('led_pattern')
-    delete_file('_recon_img')   
+    # delete_file('_recon_img')   
     # ====================================================================================================
     # ====================================================================================================
     ## 1. FPM
     FPM_test = FPM_solver()
-    cropping_center = [-125,300]
+    cropping_center = [0,0]
     # FPM_test.FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not= True, lr= 1e-2)
     # for n_iter in [1,2,3,4,5]:
     #     FPM_test.FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
@@ -795,11 +879,16 @@ if __name__ == '__main__':
     #     for lr in np.geomspace(1e-2, 1e-2, num=1):
     #         FPM_test.FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=True, lr= lr, for_loop_or_not= True)
 
+    for n_iter in [2,4,6,8,10]:
+        delete_file(f'_FPM_PPR/CGD/n_iter={n_iter}')   
+        for linear_n_iter in [2,4,6,8,10]:
+            FPM_test.FPM_PPR(camera_size= 256, n_iter= n_iter, linear_n_iter= linear_n_iter, centre= cropping_center, lr= None, for_loop_or_not= True)
+
 
     # FPM_test.bright_FPM(camera_size= 128, n_iter= 50, cropping_center= cropping_center, amp_based_or_not=False, lr= 1)
-    for n_iter in [25,50]:
-        for lr in np.geomspace(1e-2, 1e-5, num=4):
-            FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=True, lr= lr, for_loop_or_not= True)
+    # for n_iter in [25,50]:
+    #     for lr in np.geomspace(1e-2, 1e-5, num=4):
+    #         FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=True, lr= lr, for_loop_or_not= True)
     # for n_iter in [10,25,50,100]:
     #     FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
     # ====================================================================================================

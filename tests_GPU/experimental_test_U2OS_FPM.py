@@ -291,12 +291,25 @@ class U2OS_cell_dataSet(object):
         return multiplex_led_array_mask
 
     # ----------------------- Images selection methods ----------------------- 
-    def select_image_by_multiplexArrayMask(self, multiplex_led_array_mask:np.ndarray, centre:list = [0, 0]):      
+    def select_image_by_multiplexArrayMask(self, multiplex_led_array_mask:np.ndarray, centre:list = [0, 0], remove_background:bool = False):      
         print('image loading...')
         h_start     = int(self.CAMERA_H_RES//2 + centre[0] - self.camera_size//2)
         v_start     = int(self.CAMERA_V_RES//2 - centre[1] - self.camera_size//2)
         crop_size   = self.camera_size
-        
+
+        if remove_background:   
+            img_index_array = np.linspace(1,293,293).astype(int)
+            for i in img_index_array:
+                file_name = str('ILED_{0:04}.tif'.format(i))
+                img       = plt.imread(DAT_FILE_PATH + file_name)
+                crop_img = img[v_start:v_start+crop_size, h_start:h_start+crop_size]
+                if i == 1:
+                    img_background = crop_img
+                else:
+                    img_background = np.minimum(img_background, crop_img)
+        else:
+            img_background = 0
+
         y = None
         for _, i_img_array_mask in enumerate(multiplex_led_array_mask):
             single_img = np.zeros_like(self.pupil_mask)
@@ -305,7 +318,7 @@ class U2OS_cell_dataSet(object):
                     file_name = str('ILED_{0:04}.tif'.format(_idx+1))
                     img       = plt.imread(DAT_FILE_PATH + file_name)
 
-                    crop_img    = img[v_start:v_start+crop_size, h_start:h_start+crop_size]*_weight
+                    crop_img    = img[v_start:v_start+crop_size, h_start:h_start+crop_size]*_weight - img_background
                     single_img += crop_img
             
             if y is None:
@@ -339,6 +352,8 @@ class U2OS_cell_dataSet(object):
                 plt.imshow(img_background, cmap=cm.Greys_r)
                 plt.colorbar()
                 plt.title('Background image')
+                plt.savefig('Background image.png')
+                plt.close()
         else:
             img_background = 0
 
@@ -519,6 +534,111 @@ class FPM_solver(object):
             plt.close()
         return x_est
     
+    def FPM_PPR(self, camera_size:int, n_iter:int, linear_n_iter, lr, centre:list= [0,0], img_idx_array:np.ndarray= None, for_loop_or_not:bool = False):
+        print('FPM test \n----------------------')
+        self.dataset                = U2OS_cell_dataSet(camera_size)
+
+        reconstruction_res          = self.dataset.get_reconstruction_size()
+        reconstruction_shape        = (reconstruction_res, reconstruction_res)
+        print(f'recontruction shape: {reconstruction_shape}')
+
+        if img_idx_array is not None:
+            img_index_array = img_idx_array
+        else:
+            img_index_array = np.linspace(1,293,293).astype(int)
+
+        probe                       = cp.array(self.dataset.get_pupil_mask())
+        y, img_list, shifts_pair    = self.dataset.select_image_by_imgIndex(img_index_array= img_index_array, centre= centre)
+        y                           = cp.array(y)
+        self.phase_model            = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+
+        initial_est                 = cp.ones(shape= reconstruction_shape, dtype=np.complex128) 
+        initial_est                 = np.fft.fft2(initial_est, norm="ortho")
+
+        ppr_method                  = algos.PerturbativePhase(self.phase_model)
+        if lr is not None:
+            x_est                   = ppr_method.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter, lr=lr)
+        else:
+            x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter)
+        
+        x_est                       = np.fft.ifft2(x_est, norm="ortho")
+
+        if for_loop_or_not == False:
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Intensity: Reconstructed image')
+            plt.savefig('_recon_img/U2OC_FPM_Intensity image.png')
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase: Reconstruction image')
+            plt.savefig('_recon_img/U2OC_FPM_Phase image.png')
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(x_est)).get())), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('ABS of Amplitude FT image')
+            plt.savefig('_recon_img/U2OS_FPM_Amp FT image.png')
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()))))), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('ABS of Phase FT image')
+            ra_size = math.floor(x_est.shape[0]/2)
+            x       = np.linspace(-ra_size,ra_size,5)
+            default_x_ticks = np.linspace(0,x_est.shape[0],5)
+            plt.xticks(default_x_ticks, x)
+            plt.yticks(default_x_ticks, x)
+            plt.savefig('_recon_img/U2OS_FPM_Phase FT image.png')
+            plt.close()
+        else:
+            file_path   = str(f'_FPM_PPR/CGD/n_iter={n_iter}')
+            file_header = str('/U2OC_FPM_')
+            file_iter   = str(f'linear_n_iter={linear_n_iter}.png')
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Intensity: ' + file_iter)
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
+            plt.close()
+
+        return x_est
+    
     def bright_FPM(self, camera_size, n_iter= 5, lr= 1, cropping_center=[0,0], amp_based_or_not:bool = True,for_loop_or_not:bool = False):
         print('Bright field FPM Start \n----------------------')
         
@@ -649,7 +769,7 @@ class DPC_and_darkField_solver(object):
         print(f'DPC recontruction shape: {reconstruction_shape}')
 
         self.DPC_multiplex_led_array_mask   = self.dataset.get_bright_field_multiplex_led_array_mask(angle_range= bright_field_angle_range, show_angle_map= True)
-        self.DPC_y                          = self.dataset.select_image_by_multiplexArrayMask(multiplex_led_array_mask= self.DPC_multiplex_led_array_mask, centre= centre)
+        self.DPC_y                          = self.dataset.select_image_by_multiplexArrayMask(multiplex_led_array_mask= self.DPC_multiplex_led_array_mask, centre= centre, remove_background= True)
         self.DPC_y                          = cp.array(self.DPC_y)
 
         probe                       = cp.array(self.dataset.get_pupil_mask())
@@ -681,6 +801,25 @@ class DPC_and_darkField_solver(object):
             plt.colorbar()
             plt.title('Phase: Reconstruction image')
             plt.savefig('_recon_img/U2OS_DPC_Phase image.png')
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(x_est)).get())), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('ABS of Amplitude FT image')
+            plt.savefig('_recon_img/U2OS_DPC_Amp FT image.png')
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()))))), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('ABS of Phase FT image')
+            ra_size = math.floor(x_est.shape[0]/2)
+            x       = np.linspace(-ra_size,ra_size,5)
+            default_x_ticks = np.linspace(0,x_est.shape[0],5)
+            plt.xticks(default_x_ticks, x)
+            plt.yticks(default_x_ticks, x)
+            plt.savefig('_recon_img/U2OS_DPC_Phase FT image.png')
             plt.close()
         else:
             file_path   = str(f'_DPC/n_iter={n_iter}')
@@ -736,7 +875,7 @@ class DPC_and_darkField_solver(object):
         
         self.dark_multiplex_led_array_mask    = self.dataset.get_dark_multiplex_led_array_mask(
             multi_angle_range= dark_multi_angle_range_list, multi_radius_range= dark_multi_radius_range_list, show_angle_map= True)
-        self.dark_y                           = self.dataset.select_image_by_multiplexArrayMask(multiplex_led_array_mask= self.dark_multiplex_led_array_mask, centre= centre)
+        self.dark_y                           = self.dataset.select_image_by_multiplexArrayMask(multiplex_led_array_mask= self.dark_multiplex_led_array_mask, centre= centre, remove_background= True)
         self.dark_y                           = cp.array(self.dark_y)
 
         probe                       = cp.array(self.dataset.get_pupil_mask())
@@ -774,6 +913,23 @@ class DPC_and_darkField_solver(object):
             plt.colorbar()
             plt.title('Phase: Reconstruction image')
             plt.savefig('_recon_img/U2OS_Dark_and_DPC_Phase image.png')
+
+            plt.figure()
+            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(x_est)).get())), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('ABS of Amplitude FT image')
+            plt.savefig('_recon_img/U2OS_Dark_and_DPC_Amp FT image.png')
+
+            plt.figure()
+            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()))))), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('ABS of Phase FT image')
+            ra_size = math.floor(x_est.shape[0]/2)
+            x       = np.linspace(-ra_size,ra_size,5)
+            default_x_ticks = np.linspace(0,x_est.shape[0],5)
+            plt.xticks(default_x_ticks, x)
+            plt.yticks(default_x_ticks, x)
+            plt.savefig('_recon_img/U2OS_Dark_and_DPC_Phase FT image.png')
             plt.close('all')
         else:
             file_path   = str(f'_DPC_Dark/dark_n_iter={dark_n_iter}')
@@ -853,13 +1009,13 @@ def P2R(radii, angles):
 
 if __name__ == '__main__':
     ## clean folder
-    # delete_file('led_pattern')
-    # delete_file('_recon_img')   
+    delete_file('led_pattern')
+    delete_file('_recon_img')   
     # ====================================================================================================
     # ====================================================================================================
     ## 1. FPM
     FPM_test = FPM_solver()
-    # cropping_center = [0,0]
+    cropping_center = [0,0]
     # FPM_test.bright_FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not=False, lr= 1)
     # for n_iter in [100]:
     #     delete_file(f'_bright_FPM/amp_based/n_iter={n_iter}') 
@@ -868,6 +1024,12 @@ if __name__ == '__main__':
     # for n_iter in [10,25,50,100]:
     #     delete_file(f'_bright_FPM/Intensity_based/n_iter={n_iter}') 
     #     FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
+
+    # FPM_test.FPM_PPR(camera_size= 256, n_iter= 2, linear_n_iter= 4, centre= cropping_center, lr= None, for_loop_or_not= False)
+    # for n_iter in [2,4,6,8,10]:
+    #     delete_file(f'_FPM_PPR/CGD/n_iter={n_iter}')   
+    #     for linear_n_iter in [2,4,6,8,10]:
+    #         FPM_test.FPM_PPR(camera_size= 256, n_iter= n_iter, linear_n_iter= linear_n_iter, centre= cropping_center, lr= None, for_loop_or_not= True)
 
 
     # FPM_test.FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not= True, lr= 1e-2)
@@ -883,7 +1045,7 @@ if __name__ == '__main__':
     ## 2. DPC
     DPC_and_darkField_test = DPC_and_darkField_solver(camera_size= 256)
 
-    bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
+    # bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
     # DPC_and_darkField_test.DPC(bright_field_angle_range= bright_angle_range, n_iter= 1, linear_n_iter= 5, lr= None, centre=[0,0])
     # for n_iter in [1,2,3,4,5]:
     #     delete_file(f'_DPC/n_iter={n_iter}')
@@ -903,8 +1065,10 @@ if __name__ == '__main__':
     outer_dark_radius   = 4.5
     single_radius_range = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
 
-    multi_angle_range_list  = [[0,180],[180,360],[270,90],[90,270]]
-    multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range]
+    # multi_angle_range_list  = [[0,180],[180,360],[90,270],[270,90]]
+    # multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360]]
+    multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360],[45,135],[135,225],[225,315],[315,45]]
+    multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range]
 
     DPC_and_darkField_test.dark_field_with_DPC(
         bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list,

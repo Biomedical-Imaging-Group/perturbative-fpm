@@ -297,7 +297,8 @@ class FPM_soler(object):
         print("Result correlation:")
         print(np.abs( (_x_est.T.conj() @ _x) /  (np.linalg.norm(_x_est)*np.linalg.norm(_x)) ))
     
-    def FPM(self, camera_size:int, n_iter:int, lr, centre:list= [0,0], img_idx_array:np.ndarray= None, amp_based_or_not:bool= True, spec_method:bool = False):
+    def FPM(self, camera_size:int, n_iter:int, lr, centre:list= [0,0], img_idx_array:np.ndarray= None, amp_based_or_not:bool= True, spec_method:bool = False
+            , for_loop_or_not:bool = False):
         print('FPM test \n----------------------')
         self.dataset            = DogCardiac_dataset(camera_size)
 
@@ -316,7 +317,8 @@ class FPM_soler(object):
         self.phase_model        = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
 
         if amp_based_or_not:
-            loss_function               = loss.loss_amplitude_based(epsilon=1e-1)
+            epsilon                     = 1e-1
+            loss_function               = loss.loss_amplitude_based(epsilon= epsilon)
             GD_method                   = algos.GradientDescent(self.phase_model, loss_func= loss_function, line_search= None)
         else:
             GD_method                   = algos.GradientDescent(self.phase_model, loss_func= None, line_search= True)
@@ -332,17 +334,143 @@ class FPM_soler(object):
         x_est                       = GD_method.iterate(y=y, initial_est=initial_est, n_iter = n_iter, lr = lr) 
         x_est                       = np.fft.ifft2(x_est, norm="ortho")
 
-        plt.figure()
-        plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
-        plt.colorbar()
-        plt.title('Intensity: Reconstructed image')
-        plt.savefig('_recon_img/DogCardiac_FPM_Intensity image.png')
+        if for_loop_or_not == False:
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Intensity: Reconstructed image')
+            plt.savefig('_recon_img/DogCardiac_FPM_Intensity image.png')
 
-        plt.figure()
-        plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
-        plt.colorbar()
-        plt.title('Phase: Reconstruction image')
-        plt.savefig('_recon_img/DogCardiac_FPM_Phase image.png')
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase: Reconstruction image')
+            plt.savefig('_recon_img/DogCardiac_FPM_Phase image.png')
+        else:
+            file_path   = str(f'_FPM/amp_based/n_iter={n_iter}')
+            file_header = str('/DogCardiac_FPM_')
+            file_iter   = str(f'n_iter={n_iter}, lr= {lr}, epsilon={epsilon}.png')
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Intensity: ' + file_iter)
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
+            plt.close()
+
+        return x_est
+    
+    def FPM_PPR(self, camera_size:int, n_iter:int, linear_n_iter, lr, centre:list= [0,0], img_idx_array:np.ndarray= None, for_loop_or_not:bool = False):
+        print('FPM test \n----------------------')
+        self.dataset                = DogCardiac_dataset(camera_size)
+
+        reconstruction_res          = self.dataset.get_reconstruction_size()
+        reconstruction_shape        = (reconstruction_res, reconstruction_res)
+        print(f'recontruction shape: {reconstruction_shape}')
+
+        if img_idx_array is not None:
+            img_index_array = img_idx_array
+        else:
+            img_index_array = np.linspace(1,293,293).astype(int)
+
+        probe                       = cp.array(self.dataset.get_pupil_mask())
+        y, img_list, shifts_pair    = self.dataset.select_image_by_imgIndex(img_index_array= img_index_array, centre= centre)
+        y                           = cp.array(y)
+        self.phase_model            = phaseretrieval.FourierPtychography2d(probe= probe, shifts_pair= shifts_pair, reconstruct_shape= reconstruction_shape)
+
+        initial_est                 = cp.ones(shape= reconstruction_shape, dtype=np.complex128) 
+        initial_est                 = np.fft.fft2(initial_est, norm="ortho")
+
+        ppr_method                  = algos.PerturbativePhase(self.phase_model)
+        if lr is not None:
+            x_est                   = ppr_method.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter, lr=lr)
+        else:
+            x_est                   = ppr_method.iterate_ConjugateGradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter)
+        
+        x_est                       = np.fft.ifft2(x_est, norm="ortho")
+
+        if for_loop_or_not == False:
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Intensity: Reconstructed image')
+            plt.savefig('_recon_img/DogCardiac_FPM_Intensity image.png')
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Phase: Reconstruction image')
+            plt.savefig('_recon_img/DogCardiac_FPM_Phase image.png')
+        else:
+            file_path   = str(f'_FPM_PPR/CGD/n_iter={n_iter}')
+            file_header = str('/DogCardiac_FPM_')
+            file_iter   = str(f'linear_n_iter={linear_n_iter}.png')
+            plt.figure()
+            plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Intensity: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Intensity: ' + file_iter)
+            plt.close()
+
+            plt.figure()
+            plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase: '+ file_iter)
+            plt.savefig( file_path + file_header + 'Phase: ' + file_iter)
+            plt.close()
+
+            phase_img = np.angle(x_est)
+            phase_img_99 = np.percentile(np.abs(phase_img),99.99)
+            phase_img[phase_img > phase_img_99]  = 0
+            phase_img[phase_img < -phase_img_99] = 0
+            plt.figure()
+            plt.imshow(phase_img.get(), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(f'Phase Image, Filter out 99.99%: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
+            plt.close()
+
+            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+            plt.figure()
+            plt.xlabel("grayscale value")
+            plt.ylabel("pixel count")
+            plt.plot(bin_edges[0:-1], histogram)
+            _, max_ylim = plt.ylim()
+            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
+            plt.close()
+
         return x_est
     
     def Bright_FPM(self, camera_size:int, n_iter:int, lr, centre:list= [0,0], spec_method:bool = False):
@@ -467,12 +595,20 @@ if __name__ == '__main__':
     FPM_test = FPM_soler()
 
     # Test 1: model test
-    # img_idx_array = np.linspace(1,293,293).astype(int)
-    # FPM_test.simulation_test(camera_size= 100, img_idx_array= img_idx_array, n_iter= 100, lr= 1)
+    img_idx_array = np.linspace(1,293,293).astype(int)
+    # FPM_test.simulation_test(camera_size= 100, img_idx_array= img_idx_array, n_iter= 100, lr= 1e-2)
 
     # Test 2: real data
-    centre = [-50,450]
-    FPM_test.FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1e-3, amp_based_or_not=True, spec_method= False)
+    # centre = [-50,450]
+    # FPM_test.FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1e-3, amp_based_or_not=True, spec_method= False)
+    # for n_iter in [1,2,3,4,5,10,15,20,25]:
+    #     delete_file(f'_FPM/amp_based/n_iter={n_iter}')
+    #     for lr in np.geomspace(1, 1e-7, num=8):
+    #         FPM_test.FPM(camera_size= 256, centre= centre, n_iter= n_iter,lr= lr, amp_based_or_not=True, spec_method= False, for_loop_or_not= True)
+    # for n_iter in [2,4,6,8,10,15]:
+    #     for linear_n_iter in [2,4,6,8,10]:
+    #         FPM_test.FPM_PPR(camera_size= 256, centre= centre, n_iter= n_iter, linear_n_iter= linear_n_iter,lr= None, for_loop_or_not= True)
+    # FPM_test.FPM_PPR(camera_size= 256, centre= centre, n_iter= 20, linear_n_iter= 20,lr= None)
     # FPM_test.Bright_FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1, spec_method= False)
 
     # Test 3: auto shift
