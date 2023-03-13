@@ -39,6 +39,8 @@ class GradientDescent:
                 actual_lr = self.find_lr(x_est, y, descent_direction, grad, loss, initial_lr=lr)
             else:
                 actual_lr = lr
+            print(self.current_iter)
+            # print(actual_lr)
             x_est += actual_lr * descent_direction
         return x_est 
 
@@ -86,7 +88,7 @@ class GradientDescent:
             else:
                 beta = np.maximum(0, np.real(grad.ravel().conj().T @ 
                     (grad.ravel() - self.previous_grad.ravel()) / 
-                    (self.previous_grad.ravel().conj().T @ self.previous_grad.ravel()))) #TOCHECK
+                    (self.previous_grad.ravel().conj().T @ self.previous_grad.ravel()))) 
                 self.previous_grad = grad
                 self.previous_direction = -grad + beta * self.previous_direction
                 return self.previous_direction
@@ -166,7 +168,7 @@ class PerturbativePhase:
             for _ in range(linear_n_iter):
                 grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
                 epsilon = epsilon - lr*grad
-
+            print(self.current_iter)
             x_est += epsilon
         return x_est
 
@@ -196,6 +198,7 @@ class PerturbativePhase:
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
             epsilon = epsilon_expand[:self.pr_model.in_shape[0]] + epsilon_expand[self.pr_model.in_shape[0]:]* 1j
+            print(self.current_iter)
             x_est += epsilon
         return x_est
 

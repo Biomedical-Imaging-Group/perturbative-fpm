@@ -17,6 +17,9 @@ class PhaseRetrievalBase:
         return self.linop.applyT(x)
 
     @abstractmethod
+    def get_forward_model(self):
+        pass
+    
     def get_perturbative_model(self, x, method:str):
         pass
 
