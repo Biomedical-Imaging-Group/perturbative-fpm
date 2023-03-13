@@ -9,8 +9,12 @@ import numpy as np
 import cupy as cp
 import math
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import matplotlib.cm as cm
 import matplotlib.patches as patches
+from matplotlib_scalebar.scalebar import ScaleBar
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import matplotlib.font_manager as fm
 from scipy import interpolate
 
 from PIL import ImageFile
@@ -443,7 +447,28 @@ class FPM_solver(object):
             gd_method                   = algos.GradientDescent(self.phase_model, loss_func= None, line_search= True)
         x_est                       = gd_method.iterate(y = y, initial_est = initial_est, n_iter = n_iter, lr = lr)
         x_est                       = np.fft.ifft2(x_est, norm="ortho")
+        img = img_list[146]
+        img = ((img-np.min(img))/(np.max(img) - np.min(img)))
 
+        fig, ax = plt.subplots()
+
+        cmap = cm.Greys_r
+        norm = mpl.colors.Normalize(vmin=np.min(img), vmax=np.max(img))
+        fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap),ax=ax)
+
+        ax.imshow(img, cmap=cm.Greys_r)
+        ax.set_title('Phase: Reconstructed image')
+        fontprops = fm.FontProperties(size=18, weight='bold')
+        scalebar = AnchoredSizeBar(ax.transData,
+                        63, '50 um', 'upper right', 
+                        pad=0.1,
+                        color='white',
+                        frameon=False,
+                        size_vertical=1,
+                        fontproperties=fontprops)
+
+        ax.add_artist(scalebar) 
+        plt.savefig('_final_image/U2OS_FPM_Intensity bright.png')
         if for_loop_or_not == False:
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
@@ -597,9 +622,9 @@ class FPM_solver(object):
             plt.savefig('_recon_img/U2OS_FPM_Phase FT image.png')
             plt.close()
         else:
-            file_path   = str(f'_FPM_PPR/CGD/n_iter={n_iter}')
+            file_path   = str(f'_FPM_PPR/GD/n_iter={n_iter}')
             file_header = str('/U2OC_FPM_')
-            file_iter   = str(f'linear_n_iter={linear_n_iter}.png')
+            file_iter   = str(f'lr= {lr}, linear_n_iter={linear_n_iter}.png')
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
@@ -810,17 +835,35 @@ class DPC_and_darkField_solver(object):
             plt.savefig('_recon_img/U2OS_DPC_Amp FT image.png')
             plt.close()
 
+
+            img = np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get())))))
+            img = np.pad(img,64,'constant', constant_values= np.min(img))
+            img = np.log(img)
             plt.figure()
-            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()))))), cmap=cm.Greys_r)
+            plt.imshow(img, cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title('ABS of Phase FT image')
+            plt.title('Log ABS of Phase FT image')
+            ra_size = math.floor(img.shape[0]/2)
+            x       = np.linspace(-ra_size,ra_size,5)
+            default_x_ticks = np.linspace(0,img.shape[0],5)
+            plt.xticks(default_x_ticks, x)
+            plt.yticks(default_x_ticks, x)
+            plt.savefig('_recon_img/U2OS_DPC_Phase FT image.png')
+            plt.close()
+
+            img = (img - np.min(img))/(np.max(img) - np.min(img)) 
+            plt.figure()
+            plt.imshow(img, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Normalized Log ABS of Phase FT image')
             ra_size = math.floor(x_est.shape[0]/2)
             x       = np.linspace(-ra_size,ra_size,5)
             default_x_ticks = np.linspace(0,x_est.shape[0],5)
             plt.xticks(default_x_ticks, x)
             plt.yticks(default_x_ticks, x)
-            plt.savefig('_recon_img/U2OS_DPC_Phase FT image.png')
+            plt.savefig('_recon_img/U2OS_DPC_Phase normalize Log FT image.png')
             plt.close()
+
         else:
             file_path   = str(f'_DPC/n_iter={n_iter}')
             file_header = str('/U2OS_DPC_')
@@ -915,9 +958,9 @@ class DPC_and_darkField_solver(object):
             plt.savefig('_recon_img/U2OS_Dark_and_DPC_Phase image.png')
 
             plt.figure()
-            plt.imshow(np.abs((np.fft.fftshift(np.fft.fft2(x_est)).get())), cmap=cm.Greys_r)
+            plt.imshow(np.log(np.abs((np.fft.fftshift(np.fft.fft2(x_est)).get()))), cmap=cm.Greys_r)
             plt.colorbar()
-            plt.title('ABS of Amplitude FT image')
+            plt.title('Log ABS of Amplitude FT image')
             plt.savefig('_recon_img/U2OS_Dark_and_DPC_Amp FT image.png')
 
             plt.figure()
@@ -931,6 +974,25 @@ class DPC_and_darkField_solver(object):
             plt.yticks(default_x_ticks, x)
             plt.savefig('_recon_img/U2OS_Dark_and_DPC_Phase FT image.png')
             plt.close('all')
+
+            # crop = LinOpCrop2(in_shape=x_est.shape, crop_shape=(298,298))
+            img = np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get())))))
+            img = np.pad(img,42,'constant', constant_values= np.min(img))
+            img = np.log(img) 
+            img = (img - np.min(img))/(np.max(img) - np.min(img)) 
+            # img = crop.apply(img)
+            print(img.shape)
+            plt.figure()
+            plt.imshow(img, cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title('Normalized Log ABS of Phase FT image')
+            ra_size = math.floor(img.shape[0]/2)
+            x       = np.linspace(-ra_size,ra_size,5)
+            default_x_ticks = np.linspace(0,img.shape[0],5)
+            plt.xticks(default_x_ticks, x)
+            plt.yticks(default_x_ticks, x)
+            plt.savefig('_recon_img/U2OS_Dark_and_DPC_Phase normalize Log FT image.png')
+            plt.close()
         else:
             file_path   = str(f'_DPC_Dark/dark_n_iter={dark_n_iter}')
             file_header = str('/U2OS_Dark_and_DPC_')
@@ -991,7 +1053,7 @@ def interpolate_img(img, high_res:int):
     x_idx_array      = np.arange(-math.floor(img_size/2),math.ceil(img_size/2),1)
     high_x_idx_array = np.arange(-math.floor(img_size/2),math.ceil(img_size/2),img_size/high_res)
 
-    inter_img_f      = interpolate.interp2d(x_idx_array, x_idx_array, img.get(), kind='linear')
+    inter_img_f      = interpolate.interp2d(x_idx_array, x_idx_array, img, kind='linear')
     inter_img        = inter_img_f(high_x_idx_array, high_x_idx_array)
 
     return inter_img
@@ -1016,7 +1078,7 @@ if __name__ == '__main__':
     ## 1. FPM
     FPM_test = FPM_solver()
     cropping_center = [0,0]
-    # FPM_test.bright_FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not=False, lr= 1)
+    # FPM_test.FPM(camera_size= 256, n_iter= 0, cropping_center= cropping_center, amp_based_or_not=False, lr= 1)
     # for n_iter in [100]:
     #     delete_file(f'_bright_FPM/amp_based/n_iter={n_iter}') 
     #     for lr in np.geomspace(1e-1, 1e-7, num=7):
@@ -1025,11 +1087,11 @@ if __name__ == '__main__':
     #     delete_file(f'_bright_FPM/Intensity_based/n_iter={n_iter}') 
     #     FPM_test.bright_FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
 
-    # FPM_test.FPM_PPR(camera_size= 256, n_iter= 2, linear_n_iter= 4, centre= cropping_center, lr= None, for_loop_or_not= False)
-    # for n_iter in [2,4,6,8,10]:
-    #     delete_file(f'_FPM_PPR/CGD/n_iter={n_iter}')   
-    #     for linear_n_iter in [2,4,6,8,10]:
-    #         FPM_test.FPM_PPR(camera_size= 256, n_iter= n_iter, linear_n_iter= linear_n_iter, centre= cropping_center, lr= None, for_loop_or_not= True)
+    # n_iter = 5
+    # delete_file(f'_FPM_PPR/GD/n_iter={n_iter}') 
+    # for lr in np.geomspace(1e-4, 1e-8, num=5):  
+    #     for linear_n_iter in [1,3,5,7,9]:
+    #         FPM_test.FPM_PPR(camera_size= 256, n_iter= n_iter, linear_n_iter= linear_n_iter, centre= cropping_center, lr= lr, for_loop_or_not= True)
 
 
     # FPM_test.FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not= True, lr= 1e-2)
@@ -1062,13 +1124,13 @@ if __name__ == '__main__':
     bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
 
     inner_dark_radius   = 2.5
-    outer_dark_radius   = 4.5
+    outer_dark_radius   = 3.5
     single_radius_range = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
 
-    # multi_angle_range_list  = [[0,180],[180,360],[90,270],[270,90]]
+    multi_angle_range_list  = [[0,180],[180,360],[90,270],[270,90]]
     # multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360]]
-    multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360],[45,135],[135,225],[225,315],[315,45]]
-    multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range,single_radius_range]
+    # multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360],[45,135],[135,225],[225,315],[315,45]]
+    multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range]
 
     DPC_and_darkField_test.dark_field_with_DPC(
         bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list,

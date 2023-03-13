@@ -9,8 +9,12 @@ import numpy as np
 import cupy as cp
 import math
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import matplotlib.cm as cm
 import matplotlib.patches as patches
+from matplotlib_scalebar.scalebar import ScaleBar
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import matplotlib.font_manager as fm
 from scipy import interpolate
 
 from pyphaseretrieve.linop  import *
@@ -588,7 +592,7 @@ def cart2pol(x, y):
 if __name__ == '__main__':
     ## clean folder
     # delete_file('led_pattern')
-    # delete_file('_recon_img')   
+    delete_file('_recon_img')   
     # ====================================================================================================
     # ====================================================================================================
     ## 1. FPM
@@ -599,8 +603,8 @@ if __name__ == '__main__':
     # FPM_test.simulation_test(camera_size= 100, img_idx_array= img_idx_array, n_iter= 100, lr= 1e-2)
 
     # Test 2: real data
-    # centre = [-50,450]
-    # FPM_test.FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1e-3, amp_based_or_not=True, spec_method= False)
+    centre = [-50,450]
+    FPM_test.FPM(camera_size= 256, centre= centre, n_iter= 0,lr= 1, amp_based_or_not=False, spec_method= False)
     # for n_iter in [1,2,3,4,5,10,15,20,25]:
     #     delete_file(f'_FPM/amp_based/n_iter={n_iter}')
     #     for lr in np.geomspace(1, 1e-7, num=8):
@@ -608,7 +612,7 @@ if __name__ == '__main__':
     # for n_iter in [2,4,6,8,10,15]:
     #     for linear_n_iter in [2,4,6,8,10]:
     #         FPM_test.FPM_PPR(camera_size= 256, centre= centre, n_iter= n_iter, linear_n_iter= linear_n_iter,lr= None, for_loop_or_not= True)
-    # FPM_test.FPM_PPR(camera_size= 256, centre= centre, n_iter= 20, linear_n_iter= 20,lr= None)
+    # FPM_test.FPM_PPR(camera_size= 256, centre= centre, n_iter= 5, linear_n_iter= 9,lr= 1e-6)
     # FPM_test.Bright_FPM(camera_size= 256, centre= centre, n_iter= 15,lr= 1, spec_method= False)
 
     # Test 3: auto shift

@@ -9,8 +9,12 @@ import numpy as np
 import cupy as cp
 import math
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import matplotlib.cm as cm
 import matplotlib.patches as patches
+from matplotlib_scalebar.scalebar import ScaleBar
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import matplotlib.font_manager as fm
 from scipy import interpolate
 
 from pyphaseretrieve.linop  import *
@@ -558,9 +562,9 @@ class FPM_solver(object):
             plt.title('Phase: Reconstruction image')
             plt.savefig('_recon_img/HeLa_FPM__Phase image.png')
         else:
-            file_path   = str(f'_FPM_PPR/CGD/n_iter={n_iter}')
+            file_path   = str(f'_FPM_PPR/GD/n_iter={n_iter}')
             file_header = str('/HeLa_FPM_')
-            file_iter   = str(f'linear_n_iter={linear_n_iter}.png')
+            file_iter   = str(f'lr={lr}, linear_n_iter={linear_n_iter}.png')
             plt.figure()
             plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
             plt.colorbar()
@@ -586,17 +590,20 @@ class FPM_solver(object):
             plt.savefig( file_path + file_header + 'Phase99: ' + file_iter)
             plt.close()
 
-            histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
-            plt.figure()
-            plt.xlabel("grayscale value")
-            plt.ylabel("pixel count")
-            plt.plot(bin_edges[0:-1], histogram)
-            _, max_ylim = plt.ylim()
-            plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
-            plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
-            plt.title(f'Phase Grayscale Histogram: ' + file_iter)
-            plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
-            plt.close()
+            try:
+                histogram, bin_edges = np.histogram(np.angle(x_est.get()), bins= (x_est.shape[0]*x_est.shape[1]))
+                plt.figure()
+                plt.xlabel("grayscale value")
+                plt.ylabel("pixel count")
+                plt.plot(bin_edges[0:-1], histogram)
+                _, max_ylim = plt.ylim()
+                plt.text(phase_img_99.get()*1.1, max_ylim*0.9, '99.99%= {:.2f}'.format(phase_img_99.get()))
+                plt.axvline(phase_img_99.get(), color='k', linestyle='dashed', linewidth=1)
+                plt.title(f'Phase Grayscale Histogram: ' + file_iter)
+                plt.savefig( file_path + file_header + 'Phase Histogram: ' + file_iter)
+                plt.close()
+            except:
+                pass
 
         return x_est
     
@@ -872,17 +879,18 @@ if __name__ == '__main__':
     ## 1. FPM
     FPM_test = FPM_solver()
     cropping_center = [0,0]
-    # FPM_test.FPM(camera_size= 256, n_iter= 50, cropping_center= cropping_center, amp_based_or_not= True, lr= 1e-2)
+    # FPM_test.FPM(camera_size= 256, n_iter= 5, cropping_center= cropping_center, amp_based_or_not= False, lr= 1)
     # for n_iter in [1,2,3,4,5]:
     #     FPM_test.FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=False, lr= 1, for_loop_or_not= True)
     # for n_iter in [35]:
     #     for lr in np.geomspace(1e-2, 1e-2, num=1):
     #         FPM_test.FPM(camera_size= 256, n_iter= n_iter, cropping_center= cropping_center, amp_based_or_not=True, lr= lr, for_loop_or_not= True)
 
-    for n_iter in [2,4,6,8,10]:
-        delete_file(f'_FPM_PPR/CGD/n_iter={n_iter}')   
-        for linear_n_iter in [2,4,6,8,10]:
-            FPM_test.FPM_PPR(camera_size= 256, n_iter= n_iter, linear_n_iter= linear_n_iter, centre= cropping_center, lr= None, for_loop_or_not= True)
+    # n_iter = 5
+    # delete_file(f'_FPM_PPR/GD/n_iter={n_iter}') 
+    # for lr in np.geomspace(1e-4, 1e-8, num=5):  
+    #     for linear_n_iter in [1,3,5,7,9]:
+    # FPM_test.FPM_PPR(camera_size= 256, n_iter= 1, linear_n_iter= 1, centre= cropping_center, lr= None, for_loop_or_not= False)
 
 
     # FPM_test.bright_FPM(camera_size= 128, n_iter= 50, cropping_center= cropping_center, amp_based_or_not=False, lr= 1)
