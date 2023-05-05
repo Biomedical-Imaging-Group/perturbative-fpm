@@ -166,7 +166,7 @@ class PerturbativePhase:
             y_est = self.pr_model.apply_ModularSquare(x_est)
             epsilon = np.zeros_like(x_est)
             for _ in range(linear_n_iter):
-                grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply(epsilon)))                   
+                grad = (-2 * perturbative_model.apply(y - y_est - perturbative_model.apply(epsilon)))                   
                 epsilon = epsilon - lr*grad
             print(self.current_iter)
             x_est += epsilon

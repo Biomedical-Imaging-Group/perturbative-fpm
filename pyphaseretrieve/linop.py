@@ -226,10 +226,17 @@ class LinOpCrop2(BaseLinOp):
         v_pad_size = self.in_shape[0] - self.crop_shape[0]        
         h_pad_size = self.in_shape[1] - self.crop_shape[1] 
 
-        if v_pad_size != 0:        
-            x = np.pad(x,((int(np.floor(v_pad_size/2)), int(np.ceil(v_pad_size/2))), (0, 0)),mode='constant')
+        if v_pad_size != 0:
+            if self.in_shape[0]%2 == 1:
+                x = np.pad(x,((int(np.floor(v_pad_size/2)), int(np.ceil(v_pad_size/2))), (0, 0)),mode='constant')
+            else:
+                x = np.pad(x,((int(np.ceil(v_pad_size/2)), int(np.floor(v_pad_size/2))), (0, 0)),mode='constant')
+
         if h_pad_size != 0:
-            x = np.pad(x,((0, 0), (int(np.floor(h_pad_size/2)), int(np.ceil(h_pad_size/2)))),mode='constant')
+            if self.in_shape[1]%2 == 1:
+                x = np.pad(x,((0, 0), (int(np.floor(h_pad_size/2)), int(np.ceil(h_pad_size/2)))),mode='constant')
+            else:
+                x = np.pad(x,((0, 0), (int(np.ceil(h_pad_size/2)), int(np.floor(h_pad_size/2)))),mode='constant')
         return x
 
 class LinOpRoll2_PadZero(BaseLinOp):
