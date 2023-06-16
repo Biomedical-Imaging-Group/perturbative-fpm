@@ -41,14 +41,12 @@ X200_RESOLUTION_IMAGE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-l
 X100_RESOLUTION_IMAGE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/0.25NA_100ms_10X/custom_100ms_centre[-170,300]_camerasize256.tif'
 X50_RESOLUTION_IMAGE_PATH  = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/0.25NA_100ms_10X/custom_100ms_centre[-170,300]_camerasize256.tif'
 
-
 FPM_SINGLE_BACKGROUND_IMG_FILE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/0.25NA_1000ms_10X_FPM/FPM_centre[-170,300]_camerasize256_image[0,244]_background.tif'
 
 
 LED_POS_NA_FILE_PATH    = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/led_array_pos_na_z65mm.json' ## Local PATH
 LED_PATTERNS_FILE_PATH  = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/led_patterns.json'
 
-X200_CSV_SAVE_PATH = '/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/0.25NA_200ms_10X/custom/reconstruction_csv'
 
 
 
@@ -92,6 +90,10 @@ class new_custom_dataSet(object):
         img_pixel_size         = self.camera_pixel_Gsize/self.mag
         FoV                    = img_pixel_size*self.camera_size
         fourier_resolution     = 1/FoV
+
+        # if 2*self.NA/self.wave_lambda > (1/img_pixel_size)/2:
+        #     raise NameError('There is aliasing')
+
         return fourier_resolution
 
     def get_pupil_mask(self):
@@ -127,7 +129,8 @@ class new_custom_dataSet(object):
         else:
             raise NameError('Incorrect Input')
         synthetic_NA         = NA_illu + self.NA
-        reconstruction_size  = math.ceil(2*synthetic_NA/self.wave_lambda/self.fourier_res)
+        max_reconstruction_size  = math.floor(2*synthetic_NA/self.wave_lambda/self.fourier_res)
+        reconstruction_size      = np.maximum(self.camera_size, max_reconstruction_size)
 
         print('illumination NA: {:.2f}'.format(NA_illu))
         print('Total NA: {:.2f}'.format(synthetic_NA))
@@ -167,6 +170,10 @@ class new_custom_dataSet(object):
 
         single_led_img_background = skio.imread(FPM_SINGLE_BACKGROUND_IMG_FILE_PATH)
 
+        image_size  = 256
+        h_start     = int(image_size//2 + centre[0] - self.camera_size//2)
+        v_start     = int(image_size//2 - centre[1] - self.camera_size//2)
+        crop_size   = self.camera_size
 
         y           = None
         for image_key in img_num_array:
@@ -185,7 +192,7 @@ class new_custom_dataSet(object):
             print(f'Background value: {constant_background}')
             
             led_num                                         = len(self.led_patterns_dict[pattern][image_key])
-            single_img                                      = img[image_key,:,:] - (led_num * constant_background)
+            single_img                                      = img[image_key][v_start:v_start+crop_size, h_start:h_start+crop_size] - (led_num * constant_background)
             single_img[single_img<0]                        = 0
             single_img_999_value                            = np.percentile(single_img, 99.9)
             single_img[single_img > single_img_999_value]   = single_img_999_value
@@ -277,6 +284,75 @@ class PPR_DPC_solver(object):
         self.camera_size = camera_size
         self.dataset     = new_custom_dataSet(camera_size= camera_size)
 
+    def Real_DPC(self, selectedImg_list:list,  centre:list = [0,0], alpha= 0, file_pattern= '4 Quarters',
+                 initial_est:np.ndarray= None, DAT_select:int= 100,for_loop_or_not:bool = False, NA_range:list= [0,1]):
+
+
+        multiplex_led_array_mask, total_selected_led_idx_array = self.dataset.selectImg_2_multiplexMask_totalSelectArray(img_num_array= selectedImg_list)
+        reconstruction_res          = self.dataset.get_reconstruction_size(total_selected_led_idx_array= total_selected_led_idx_array)
+        reconstruction_shape        = (reconstruction_res, reconstruction_res)
+        print(f'Real DPC recontruction shape: {reconstruction_shape}')
+
+        DPC_y                       = np.array(self.dataset.selectImg_by_singleDAT_selectImgList(img_num_array= selectedImg_list, centre= centre, DAT_select= DAT_select))
+        probe                       = np.array(self.dataset.get_pupil_mask())
+        total_shifts_pair           = self.dataset.total_shifts_pair
+
+        total_image = int(DPC_y.shape[0]/self.camera_size)
+        DPC_y_list = []
+        for idx_img in range(total_image):
+            DPC_y_list.append(DPC_y[idx_img*self.camera_size:(idx_img+1)*self.camera_size,:])
+        
+
+        croplinop = LinOpCrop2(in_shape= (reconstruction_shape), crop_shape=(self.camera_size,self.camera_size))
+        probe     = np.fft.ifftshift(croplinop.applyT(np.fft.fftshift(probe)))
+
+        transfer_func_list = []
+        sum_transfer_func  = np.zeros_like(probe)
+        for i_mask in multiplex_led_array_mask:
+            transfer_func = np.zeros_like(probe)
+            for idx, mask_item in enumerate(i_mask):
+                if (mask_item != False) and (mask_item != 0):
+                    pos_shift = LinOpRoll2(total_shifts_pair[idx,0], total_shifts_pair[idx,1])
+                    neg_shift = LinOpRoll2(-total_shifts_pair[idx,0], -total_shifts_pair[idx,1])
+
+                    if transfer_func is None:
+                        transfer_func = np.copy(neg_shift.apply(probe) - pos_shift.apply(probe))
+                    else:
+                        transfer_func = transfer_func + neg_shift.apply(probe) - pos_shift.apply(probe)
+            transfer_func_list.append(transfer_func)
+
+        file_path   = str(f'_recon_img/')
+        file_header = str('DPC_transfor')
+        file_pattern= str('pattern: '+ file_pattern)
+        file_end    = str('.png')
+
+        sum_transfer_DPC_phase     = np.zeros_like(probe)
+        sum_transfer_func_square   = np.zeros_like(probe)
+        for idx, _transfer in enumerate(transfer_func_list):  
+            FT_DPC_y  = np.fft.fft2(DPC_y_list[idx], norm= 'ortho')
+            FT_DPC_y  = np.fft.ifftshift(croplinop.applyT(np.fft.fftshift(FT_DPC_y))) * reconstruction_res/self.camera_size
+            
+            sum_transfer_DPC_phase   = sum_transfer_DPC_phase + (_transfer * 1j).conj() * FT_DPC_y
+            sum_transfer_func_square = sum_transfer_func_square + np.abs(_transfer)**2
+            
+            plt.figure()
+            plt.imshow(np.fft.fftshift(_transfer), cmap=cm.Greys_r)
+            plt.colorbar()
+            plt.title(file_header+ f' function{idx}, ' + file_pattern)
+            plt.savefig(file_path + file_header + f' function {idx} ' + file_pattern + file_end)
+            plt.close()
+
+        FT_phase    = sum_transfer_DPC_phase/(sum_transfer_func_square + alpha)
+        x_est_phase = np.fft.ifft2(FT_phase, norm= 'ortho')
+
+        file_alpha  = str(f'alpha={alpha}')
+        plt.figure()
+        plt.imshow(np.real(x_est_phase), cmap=cm.Greys_r)
+        plt.colorbar()
+        plt.title(file_header + f' phase, ' + file_pattern)
+        plt.savefig(file_path + file_header + ' phase, ' + file_alpha + f', '+ file_pattern + file_end)
+        plt.close()
+
     def PPR_DPC(self, selectedImg_list:list, n_iter= 1, linear_n_iter= 5, lr= 1, centre:list = [0,0], initial_est:np.ndarray= None, DAT_select:int= 100,
                 for_loop_or_not:bool = False, NA_range:list= [0,1]):
         print('PPR-DPC start \n----------------------')
@@ -285,21 +361,31 @@ class PPR_DPC_solver(object):
 
         reconstruction_res          = self.dataset.get_reconstruction_size(total_selected_led_idx_array= total_selected_led_idx_array)
         reconstruction_shape        = (reconstruction_res, reconstruction_res)
+
         print(f'Recontruction shape: {reconstruction_shape}')
 
-        y                           = cp.array(self.dataset.selectImg_by_singleDAT_selectImgList(img_num_array= selectedImg_list, centre= centre, DAT_select= DAT_select))
+        y                           = cp.array(self.dataset.selectImg_by_singleDAT_selectImgList(img_num_array= selectedImg_list, DAT_select= DAT_select))
         probe                       = cp.array(self.dataset.get_pupil_mask())
         total_shifts_pair           = self.dataset.total_shifts_pair
         pr_model                    = phaseretrieval.MultiplexedPhaseRetrieval(probe= probe,multiplex_led_mask= multiplex_led_array_mask, shifts_pair= total_shifts_pair, reconstruct_shape= reconstruction_shape)
-        
-        ppr_method                  = algos.PerturbativePhase(pr_model)
+
         if initial_est is None:
             initial_est             = cp.ones(shape= reconstruction_shape, dtype=np.complex128)
         else:
             initial_est             = cp.array(initial_est)
         initial_est             = np.fft.fft2(initial_est, norm="ortho")
+
+        y_est                   = pr_model.apply_ModularSquare(initial_est)
+        mean_y_est              = np.mean(y_est[0:self.camera_size, :])
+        mean_y                  = np.mean(y[0:self.camera_size,:])
+        normalized_facter       = np.sqrt(mean_y/mean_y_est)
+        initial_est             = initial_est * normalized_facter
+
         crop_op                 = LinOpCrop2(in_shape= reconstruction_shape, crop_shape= initial_est.shape)
         initial_est             = np.fft.ifftshift(crop_op.applyT(np.fft.fftshift(initial_est)))
+
+        ppr_method              = algos.PerturbativePhase(pr_model)
+
 
         if lr is not None:
             x_est                   = ppr_method.iterate_GradientDescent(y= y, initial_est= initial_est, n_iter= n_iter, linear_n_iter= linear_n_iter, lr=lr)
@@ -338,7 +424,7 @@ class PPR_DPC_solver(object):
 
         croplinop = LinOpCrop2(in_shape= (self.camera_size*2,self.camera_size*2), crop_shape= reconstruction_shape )
         img = np.abs((np.fft.fftshift(np.fft.fft2(np.angle(x_est.get()), norm= 'ortho'))))
-        img = np.abs(np.log(img))
+        img = np.log(img)
         img = croplinop.applyT(img)
 
         NA_radius   = self.dataset.NA/self.dataset.wave_lambda/self.dataset.fourier_res
@@ -368,8 +454,10 @@ class PPR_DPC_solver(object):
         padded_phase_FT  = croplinop.applyT(np.fft.fftshift(np.fft.fft2(x_est, norm= 'ortho')))
         padded_phase_img = np.fft.ifft2(np.fft.ifftshift(padded_phase_FT), norm= 'ortho')
         img_size         = self.camera_size*2
-        line_x_pos = 138
-        line_y_pos = [91, 98]
+        # line_x_pos = 138
+        # line_y_pos = [91, 98]
+        line_x_pos = 130
+        line_y_pos = [92, 100]
         y_width    = line_y_pos[1] - line_y_pos[0]
         plot_x = int((line_x_pos/self.camera_size)*img_size)
         plot_y = [int((line_y_pos[0]/self.camera_size)*img_size), int((line_y_pos[1]/self.camera_size)*img_size)]
@@ -411,8 +499,8 @@ class PPR_DPC_solver(object):
                 
 if __name__ == '__main__':
     ## clean folder
-    delete_file('led_pattern')
-    delete_file('_recon_img')   
+    # delete_file('led_pattern')
+    # delete_file('_recon_img')   
 
     # single test
     centre          = [-170,300]
@@ -422,13 +510,14 @@ if __name__ == '__main__':
     # _PPR_DPC_solver.auto_CGD_for_loop(initial_est= None, img_list= img_list, NA_range= [0,1])
 
     img_list    = [0,1,2,3]
-    x_est       = _PPR_DPC_solver.PPR_DPC(selectedImg_list= img_list, n_iter= 4, linear_n_iter= 3, lr= None, centre= centre, DAT_select= 100)
+    # _PPR_DPC_solver.Real_DPC(selectedImg_list= img_list, centre= centre, alpha= 1e-3)
+    x_est       = _PPR_DPC_solver.PPR_DPC(selectedImg_list= img_list, n_iter= 3, linear_n_iter= 15, lr= None, centre= centre, DAT_select= 200)
     # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/new_phase_target/0.25NA_50ms_10X/' 
     #            + 'bright_PPR_DPC_niter=4,lniter=3_csv_file.csv',x_est.get(), delimiter=',')
     
 
     
-    initial_est = read_complex_str_csv('dataset/new_phase_target/0.25NA_50ms_10X/bright_PPR_DPC_niter=4,lniter=3_csv_file.csv')
+    # initial_est = read_complex_str_csv('dataset/new_phase_target/0.25NA_50ms_10X/bright_PPR_DPC_niter=4,lniter=3_csv_file.csv')
 
     # img_list    = [0,1,2,3,12,13,14,15]
     # _PPR_DPC_solver.auto_CGD_for_loop(initial_est= initial_est, img_list= img_list, NA_range= [1,1.3], DAT_select= 200)
@@ -436,9 +525,9 @@ if __name__ == '__main__':
     # img_list    = [0,1,2,3,20,21,22,23]
     # _PPR_DPC_solver.auto_CGD_for_loop(initial_est= initial_est, img_list= img_list, NA_range= [1,1.5], DAT_select= 200)
 
-    img_list    = [0,1,2,3,12,13,14,15]
-    x_est = _PPR_DPC_solver.PPR_DPC(selectedImg_list= img_list, n_iter= 4, linear_n_iter= 1, lr= None, initial_est= initial_est, 
-                            centre= centre, DAT_select= 200, NA_range= [1,1.3])
+    # img_list    = [0,1,2,3,12,13,14,15]
+    # x_est = _PPR_DPC_solver.PPR_DPC(selectedImg_list= img_list, n_iter= 4, linear_n_iter= 1, lr= None, initial_est= initial_est, 
+    #                         centre= centre, DAT_select= 200, NA_range= [1,1.3])
 
     # img_list    = [0,1,2,3,12,13,14,15,16,17,18,19]
     # _PPR_DPC_solver.PPR_DPC(selectedImg_list= img_list, n_iter= 2, linear_n_iter= 3, lr= None, initial_est= x_est, 

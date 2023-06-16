@@ -19,9 +19,7 @@ import re
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import matplotlib.font_manager as fm
 from scipy import interpolate
-
-from PIL import ImageFile
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+import warnings
 
 from pyphaseretrieve.linop  import *
 from pyphaseretrieve        import algos
@@ -39,17 +37,17 @@ class U2OS_cell_dataSet(object):
         ## Experiment Setup Parameters Setting (distance and length unit: um)
         # Optical system
         self.wave_lambda        = 0.514
-        self.NA                 = 0.2
+        self.NA                 = 0.19
         # Camera system
         self.camera_size        = camera_size
         self.mag                = 8.1485
-        self.camera_pixel_Gsize = 6.5
+        self.camera_pixel_Gsize = 5.5
         self.CAMERA_H_RES       = 512
         self.CAMERA_V_RES       = 512
         # LED system
         self.led_pitch          = 4000
         self.led_d_z            = 67500
-        self.led_dia_number     = 19
+        self.led_dia_number     = 25
         self.total_n_img        = 293
         ## generate experimental setup
         self.experimentSetup()
@@ -65,6 +63,10 @@ class U2OS_cell_dataSet(object):
         img_pixel_size         = self.camera_pixel_Gsize/self.mag
         FoV                    = img_pixel_size*self.camera_size
         fourier_resolution     = 1/FoV
+
+        if 2*self.NA/self.wave_lambda > (1/img_pixel_size)/2:
+            # raise NameError('There is aliasing')
+            warnings.warn('There is aliasing')
         return fourier_resolution
 
     def get_pupil_mask(self):
@@ -87,11 +89,12 @@ class U2OS_cell_dataSet(object):
         elif select_led_index_array is not None:
             NA_illu = self.get_illumnationNA_by_index(select_led_index_array= select_led_index_array)
         else:
-             NA_illu = self.get_total_illumnationNA()
+            NA_illu = self.get_total_illumnationNA()
         synthetic_NA            = NA_illu + self.NA
-        print('illumination NA: {:.2f}'.format(NA_illu))
-        print('Total NA: {:.2f}'.format(synthetic_NA))
-        reconstruction_size  = math.ceil(2*synthetic_NA/self.wave_lambda/self.fourier_res)
+        print('illumination NA: {:.3f}'.format(NA_illu))
+        print('Total NA: {:.3f}'.format(synthetic_NA))
+        max_reconstruction_size  = math.ceil(2*synthetic_NA/self.wave_lambda/self.fourier_res)
+        reconstruction_size      = np.maximum(self.camera_size, max_reconstruction_size)
         return reconstruction_size 
 
     def get_total_illumnationNA(self) -> float:
@@ -228,6 +231,9 @@ class U2OS_cell_dataSet(object):
                     # led_angle_bool_mask           = np.logical_or(angle_range[idx,0] <= led_angle_map, led_angle_map <= angle_range[idx,1])
                 else:
                     led_angle_bool_mask           = np.logical_and(angle_range[idx,0] < led_angle_map, led_angle_map < angle_range[idx,1])
+                    if angle_range[idx,1] > 360:
+                        led_angle_bool_mask       = np.logical_and(angle_range[idx,0] <= led_angle_map, led_angle_map < angle_range[idx,1])
+
                     # if angle_range[idx,0] == angle_range[idx,1]:
                     #     if angle_range[idx,0] ==0:
                     #         led_angle_bool_mask = np.logical_and( (angle_range[idx,0] == led_angle_map), led_r_map !=0)
@@ -263,6 +269,7 @@ class U2OS_cell_dataSet(object):
     def get_single_dark_multiplex_led_array_mask(self, single_angle_range:list, single_radius_range:list) -> np.ndarray:
         # Convert led_angle_map to 0-360 degree map
         led_r_map, led_angle_map     = self.get_led_r_angle_map()
+        print(single_radius_range)
 
         dark_field_radius_range_led_bool_mask                             = np.logical_and(single_radius_range[0]<=led_r_map,led_r_map<=single_radius_range[1])
         _, _,birght_field_led_bool_mask                                   = self.get_bright_field_LED_map()
@@ -413,7 +420,7 @@ class DPC_and_darkField_solver(object):
 
         img             = plt.imread(FILE_PATH)
         img             = (img- np.min(img))/(np.max(img) - np.min(img)) - 0.5
-        img             = np.exp((1j * img)/5)
+        img             = np.exp((1j * img))
 
         v_center        = SIMULATION_IMAGE_SIZE//2 - centre[1]
         h_center        = SIMULATION_IMAGE_SIZE//2 + centre[0]
@@ -425,27 +432,6 @@ class DPC_and_darkField_solver(object):
 
         groundtruth_img = np.array(img[v_start:v_start+crop_size, h_start:h_start+crop_size])
 
-
-        # plt.figure()
-        # plt.imshow(np.abs(img), cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Simulation target: Abs of Cameraman image')
-        # plt.savefig('_recon_img/Simulation_cameraman Abs image.png')
-        # plt.close()
-
-        # plt.figure()
-        # plt.imshow(np.angle(img), cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Simulation target: Phase of Cameraman image')
-        # plt.savefig('_recon_img/Simulation_cameraman Phase image.png')
-        # plt.close()
-
-        # plt.figure()
-        # plt.imshow(np.abs(groundtruth_img), cmap=cm.Greys_r)
-        # plt.colorbar()
-        # plt.title('Simulation target: Abs of Cameraman groundtruth image')
-        # plt.savefig('_recon_img/Simulation_cameraman Abs groundtruth image.png')
-        # plt.close()
 
         plt.figure()
         plt.imshow(np.angle(groundtruth_img), cmap=cm.Greys_r)
@@ -496,14 +482,8 @@ class DPC_and_darkField_solver(object):
                         transfer_func = np.copy(neg_shift.apply(probe) - pos_shift.apply(probe))
                     else:
                         transfer_func = transfer_func + neg_shift.apply(probe) - pos_shift.apply(probe)
-            sum_transfer_func += transfer_func
-            # transfer_func_list.append(transfer_func)
+            transfer_func_list.append(transfer_func)
 
-        transfer_func_list.append(sum_transfer_func)
-        transfer_func_list.append(sum_transfer_func)
-
-
-        
         file_path   = str(f'_recon_img/')
         file_header = str('DPC_transfor')
         file_pattern= str('pattern: '+ file_pattern)
@@ -513,7 +493,7 @@ class DPC_and_darkField_solver(object):
         sum_transfer_func_square   = np.zeros_like(probe)
         for idx, _transfer in enumerate(transfer_func_list):  
             FT_DPC_y  = np.fft.fft2(DPC_y_list[idx], norm= 'ortho')
-            FT_DPC_y  = np.fft.ifftshift(croplinop.applyT(np.fft.fftshift(FT_DPC_y)))
+            FT_DPC_y  = np.fft.ifftshift(croplinop.applyT(np.fft.fftshift(FT_DPC_y))) * reconstruction_res/self.camera_size
             
             sum_transfer_DPC_phase   = sum_transfer_DPC_phase + (_transfer * 1j).conj() * FT_DPC_y
             sum_transfer_func_square = sum_transfer_func_square + np.abs(_transfer)**2
@@ -525,11 +505,10 @@ class DPC_and_darkField_solver(object):
             plt.savefig(file_path + file_header + f' function {idx} ' + file_pattern + file_end)
             plt.close()
 
-        alpha       = alpha
         FT_phase    = sum_transfer_DPC_phase/(sum_transfer_func_square + alpha)
-        x_est_phase = np.fft.ifft2(FT_phase, norm= 'ortho')/6
-        file_alpha  = str(f'alpha={alpha}')
+        x_est_phase = np.fft.ifft2(FT_phase, norm= 'ortho')
 
+        file_alpha  = str(f'alpha={alpha}')
         plt.figure()
         plt.imshow(np.real(x_est_phase), cmap=cm.Greys_r)
         plt.colorbar()
@@ -556,7 +535,7 @@ class DPC_and_darkField_solver(object):
         plt.figure()
         plt.imshow(error_map, cmap=cm.Greys_r)
         plt.colorbar()
-        plt.title('FT Error map, SNR: {:.2f}'.format(snr_value))
+        plt.title('FT Error map, SNR: {:.2f}, alpha: {:.3f}'.format(snr_value, alpha))
         plt.savefig(file_path + file_header + ' Phase: Error map ' + file_pattern + '_' + file_alpha + file_end)
         plt.close()
 
@@ -610,7 +589,7 @@ class DPC_and_darkField_solver(object):
                 file_path   = str(f'_DPC/GD/n_iter={n_iter}')
         else:
             file_path   = str(f'_recon_img')
-        file_header = str('/Simulation_DPC_4Q_')
+        file_header = str('/Simulation_DPC_3pattern_')
         if lr is None:
             file_iter   = str(f'n_iter={n_iter}, l_n_iter={linear_n_iter}, NA_range[0,1]')
         else:
@@ -669,8 +648,8 @@ class DPC_and_darkField_solver(object):
             self, bright_field_angle_range:np.ndarray, dark_multi_angle_range_list:list, dark_multi_radius_range_list:list, groundtruth_size:int,
             bright_n_iter= 1, bright_linear_n_iter= 5, bright_lr= None,
             dark_n_iter= 15, dark_linear_n_iter= 5, dark_lr= None,
-            centre:list= [0,0], read_exsiting_csv:str= None, initial_est= None, ones_initial_est:bool= False, NA_range=[1,1],
-            for_loop_or_not:bool = False):
+            centre:list= [0,0], read_exsiting_csv:str= None, initial_est= None, ones_initial_est:bool= False,
+            NA_range=[1,1], extra_file_name:str='',for_loop_or_not:bool = False):
 
         self.DPC_multiplex_led_array_mask     = self.dataset.get_bright_field_multiplex_led_array_mask(angle_range= bright_field_angle_range, show_angle_map= True)
         self.dark_multiplex_led_array_mask    = self.dataset.get_dark_multiplex_led_array_mask(
@@ -703,8 +682,7 @@ class DPC_and_darkField_solver(object):
         pr_model                    = phaseretrieval.MultiplexedPhaseRetrieval(probe= probe,multiplex_led_mask= total_multiplex_led_mask, shifts_pair= total_shifts_pair, reconstruct_shape= reconstruction_shape)
         
         simu_img    = self.select_simulation_range(groundtruth_size= groundtruth_size, centre= centre)
-        simu_img    = cp.array(simu_img)
-        total_y     = pr_model.apply_ModularSquare(np.fft.fft2(simu_img, norm="ortho"))
+        total_y     = pr_model.apply_ModularSquare(np.fft.fft2(cp.array(simu_img), norm="ortho"))
 
         for idx in range(int(total_y.shape[0]/self.camera_size)):
             plt.figure()
@@ -723,6 +701,10 @@ class DPC_and_darkField_solver(object):
 
         x_est                   = np.fft.ifft2(x_est, norm="ortho")
 
+        if self.cpu:
+            x_est       = cp.asnumpy(x_est)
+
+
         if for_loop_or_not:
             if dark_lr is None:
                 file_path   = str(f'_PPR_DPC/CGD/n_iter={dark_n_iter}')
@@ -730,7 +712,7 @@ class DPC_and_darkField_solver(object):
                 file_path   = str(f'_PPR_DPC/GD/n_iter={dark_n_iter}')
         else:
             file_path   = str(f'_recon_img')
-        file_header = str('/Simulation_Dark_PPR-DPC_')
+        file_header = str('/Simulation_Dark_PPR-DPC_') + extra_file_name
         if dark_lr is None:
             file_iter   = str(f'n_iter={dark_n_iter}, l_n_iter={dark_linear_n_iter}, NA_range[{NA_range[0]}, {NA_range[1]}]')
         else:
@@ -738,14 +720,14 @@ class DPC_and_darkField_solver(object):
         file_end    = str('.png')
 
         plt.figure()
-        plt.imshow(np.abs(x_est.get())**2, cmap=cm.Greys_r)
+        plt.imshow(np.abs(x_est)**2, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title(f'Intensity: '+ file_iter)
         plt.savefig( file_path + file_header + 'Intensity: ' + file_iter + file_end)
         plt.close()
 
         plt.figure()
-        plt.imshow(np.angle(x_est.get()), cmap=cm.Greys_r)
+        plt.imshow(np.angle(x_est), cmap=cm.Greys_r)
         plt.colorbar()
         plt.title(f'Phase: '+ file_iter)
         plt.savefig( file_path + file_header + 'Phase: ' + file_iter + file_end)
@@ -756,7 +738,7 @@ class DPC_and_darkField_solver(object):
         log_FT_phase_xest   = np.log(phase_FT_xest)
         log_FT_phase_xest   = croplinop.applyT(log_FT_phase_xest)
         plt.figure()
-        plt.imshow(log_FT_phase_xest.get(), cmap=cm.Greys_r)
+        plt.imshow(log_FT_phase_xest, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('Abs Phase Log FT image')
         plt.savefig(file_path + file_header + 'Phase: Log FT image ' + file_iter + file_end)
@@ -776,7 +758,7 @@ class DPC_and_darkField_solver(object):
         noise_map = expand_phase_FT_xest - phase_FT_ground
         snr_value = 10*np.log10(np.mean(phase_FT_ground**2)/np.mean((noise_map)**2))
         plt.figure()
-        plt.imshow(error_map.get(), cmap=cm.Greys_r)
+        plt.imshow(error_map, cmap=cm.Greys_r)
         plt.colorbar()
         plt.title('FT Error map, SNR: {:.2f}'.format(snr_value))
         plt.savefig(file_path + file_header + 'Phase: Error map ' + file_iter + file_end)
@@ -977,77 +959,104 @@ class DPC_and_darkField_solver(object):
 
 if __name__ == '__main__':
     ## clean folder
-    delete_file('led_pattern')
-    delete_file('_recon_img')   
+    # delete_file('led_pattern')
+    # delete_file('_recon_img')   
 
     _simulation = DPC_and_darkField_solver(camera_size= 100)
-
-
     centre              = [50,60]
     groundtruth_size    = 256
+
+
     ## 1. DPC ==========================
     ## =================================
-    # bright_angle_range = np.array([[0,180],[90,270]])
-    # bright_angle_range = np.array([[0,180],[270,90]])
-    # pattern = '2 halves 90 degree'
-    # for alpha in np.geomspace(1e+2, 1e-3, num=6):
+    bright_angle_range = np.array([[0,180],[90,270]])
+    pattern = '2 halves 90 degree'
+    # for alpha in np.geomspace(1e+0, 1e-3, num=4):
     #     _simulation.Real_DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, centre= centre, 
     #                          alpha= alpha, file_pattern = pattern)
         
-    # bright_angle_range = np.array([[0,90],[90,180]])
-    # pattern = '2 quarters 90 degree'
-    # for alpha in np.geomspace(1e+2, 1e-3, num=6):
-    #     _simulation.Real_DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, centre= centre, 
-    #                          alpha= alpha, file_pattern = pattern)
-
-    # _simulation.Real_DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, centre= centre, alpha= 1e-3)
-
+    _simulation.Real_DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, centre= centre, alpha= 1e-1
+                         , file_pattern = pattern)
 
     ## 2. bright PPR-DPC ==========================
     ## ============================================
-    # bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360],[0,0],[90,90],[180,180],[270,270],[None,None]])
     # bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
     # bright_angle_range = np.array([[0,180],[180,360],[90,270],[270,90]])
     # bright_angle_range = np.array([[0,90],[90,180]])
-    bright_angle_range = np.array([[0,180],[90,270]])
+    # bright_angle_range = np.array([[0,180],[90,270],[0,361]])
+    # bright_angle_range = np.array([[0,180],[90,270]])
     # bright_angle_range = np.array([[0,90]])
 
-    _simulation.DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, 
-                    n_iter= 1, linear_n_iter= 100, centre= centre, lr= None, _lambda= 0)
-
-    # for n_iter in [1,25,50,100]:
-        # delete_file(f'_DPC/CGD/n_iter={n_iter}')
-    #     for linear_n_iter in [100]:
-    #         _simulation.DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, 
-    #         n_iter= n_iter, linear_n_iter= linear_n_iter, centre= centre, lr= None, for_loop_or_not= True)
-
-    # n_iter = 25
-    # linear_n_iter = 25
-    # delete_file(f'_DPC/GD/n_iter={n_iter}')
-    # for lr in [1.6e-4]:
-    #     _simulation.DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, 
-    #     n_iter= n_iter, linear_n_iter= linear_n_iter, centre= centre, lr= lr, for_loop_or_not= True)
-
-    # _simulation.DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, 
-    #                 n_iter= 1, linear_n_iter= 1000, centre= centre, lr= 1.6e-4, alpha= 0.1)
+    # x_est = _simulation.DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, 
+    #                 n_iter= 100, linear_n_iter= 100, centre= centre, lr= None, _lambda= 0, alpha= 0)
+    
+    # x_est = _simulation.DPC(bright_field_angle_range= bright_angle_range, groundtruth_size= groundtruth_size, 
+    #                 n_iter= 100, linear_n_iter= 120, centre= centre, lr= None, _lambda= 0, alpha= 0)
+    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/4_quarter_bright_PPR_DPC_100x100_csv_file.csv',x_est, delimiter=',')
 
     ## 2. PDPC =========================
     ## =================================
 
+    # bright_angle_range = np.array([[0,180],[90,270],[0,361]])
+    # multi_angle_range_list  = [[0,120],[120,240],[240,360]]
 
-    # centre             = [50,60]
-    # bright_angle_range = np.array([[0,90],[90,180],[180,270],[270,360]])
-    # groundtruth_size     = 256
-
-    # multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360]]
-
-    # outer_NA_facter = 1.5
+    # outer_NA_facter = 2
     # inner_NA = _simulation.dataset.NA * 0
     # outer_NA = _simulation.dataset.NA * outer_NA_facter
     # inner_dark_radius       = (inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-inner_NA**2)/_simulation.dataset.led_pitch
     # outer_dark_radius       = (outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-outer_NA**2)/_simulation.dataset.led_pitch
     # single_radius_range     = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
-    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range]
+    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range]
+
+    # x_est = _simulation.dark_field_with_DPC(
+    #     bright_field_angle_range= bright_angle_range, 
+    #     dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list, 
+    #     groundtruth_size= groundtruth_size,
+    #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
+    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
+    #     centre= centre, read_exsiting_csv= '3_patterns_bright_PPR_DPC_100x100_csv_file.csv', NA_range= [1, outer_NA_facter],
+    #     extra_file_name = '3 patterns_'
+    # )
+
+    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/3_circle_dark_PPR_DPC_NA[1,1.3]_csv_file.csv',x_est, delimiter=',')
+
+    # multi_angle_range_list  = [[0,120],[120,240],[240,360],
+    #                            [0,120],[120,240],[240,360]]
+    # inner_NA_facter = 1.3
+    # outer_NA_facter = 1.5
+    # inner_NA = _simulation.dataset.NA * inner_NA_facter
+    # outer_NA = _simulation.dataset.NA * outer_NA_facter
+    # inner_dark_radius       = (inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-inner_NA**2)/_simulation.dataset.led_pitch
+    # outer_dark_radius       = (outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-outer_NA**2)/_simulation.dataset.led_pitch
+    # second_radius_range     = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
+    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,
+    #                            second_radius_range,second_radius_range,second_radius_range,]
+
+    # x_est = _simulation.dark_field_with_DPC(
+    #     bright_field_angle_range= bright_angle_range, 
+    #     dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list, 
+    #     groundtruth_size= groundtruth_size,
+    #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
+    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
+    #     centre= centre, read_exsiting_csv= '3_circle_dark_PPR_DPC_NA[1,1.3]_csv_file.csv', NA_range= [inner_NA_facter, outer_NA_facter],
+    #     extra_file_name = '3 patterns_'
+    # )
+
+    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/3_circle_dark_PPR_DPC_NA[1.3,1.5]_151x151_csv_file.csv',x_est, delimiter=',')
+
+    # multi_angle_range_list  = [[0,120],[120,240],[240,360],
+    #                            [0,120],[120,240],[240,360],
+    #                            [0,120],[120,240],[240,360]]
+    # inner_NA_facter = 1.5
+    # outer_NA_facter = 1.7
+    # inner_NA = _simulation.dataset.NA * inner_NA_facter
+    # outer_NA = _simulation.dataset.NA * outer_NA_facter
+    # inner_dark_radius       = (inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-inner_NA**2)/_simulation.dataset.led_pitch
+    # outer_dark_radius       = (outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-outer_NA**2)/_simulation.dataset.led_pitch
+    # third_radius_range     = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
+    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,
+    #                            second_radius_range,second_radius_range,second_radius_range,
+    #                            third_radius_range,third_radius_range,third_radius_range]
 
 
     # x_est = _simulation.dark_field_with_DPC(
@@ -1055,149 +1064,59 @@ if __name__ == '__main__':
     #     dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list, 
     #     groundtruth_size= groundtruth_size,
     #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
-    #     dark_n_iter= 1, dark_linear_n_iter= 100, dark_lr= None,
-    #     centre= centre, read_exsiting_csv= '4_quarter_bright_PPR_DPC_117x117_csv_file.csv', NA_range= [1, outer_NA_facter]
+    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
+    #     centre= centre, initial_est= cp.array(x_est), NA_range= [inner_NA_facter, outer_NA_facter],
+    #     extra_file_name = '3 patterns_'
     # )
 
-    # for outer_NA_facter in [2]:
-        
-    #     multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360]]
+    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/3_circle_dark_PPR_DPC_NA[1.5,1.7]_csv_file.csv',x_est, delimiter=',')
 
-    #     inner_NA = _simulation.dataset.NA * 0
-    #     outer_NA = _simulation.dataset.NA * outer_NA_facter
-    #     inner_dark_radius       = (inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-inner_NA**2)/_simulation.dataset.led_pitch
-    #     outer_dark_radius       = (outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-outer_NA**2)/_simulation.dataset.led_pitch
-    #     single_radius_range     = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
-    #     multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range]
+    # multi_angle_range_list  = [[0,120],[120,240],[240,360],
+    #                            [0,120],[120,240],[240,360],
+    #                            [0,120],[120,240],[240,360],
+    #                            [0,120],[120,240],[240,360]]
+    # inner_NA_facter = 1.7
+    # outer_NA_facter = 2
+    # inner_NA = _simulation.dataset.NA * inner_NA_facter
+    # outer_NA = _simulation.dataset.NA * outer_NA_facter
+    # inner_dark_radius       = (inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-inner_NA**2)/_simulation.dataset.led_pitch
+    # outer_dark_radius       = (outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-outer_NA**2)/_simulation.dataset.led_pitch
+    # fourth_radius_range     = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
+    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,
+    #                            second_radius_range,second_radius_range,second_radius_range,
+    #                            third_radius_range,third_radius_range,third_radius_range,
+    #                            fourth_radius_range,fourth_radius_range,fourth_radius_range]
 
-    #     x_est = _simulation.dark_field_with_DPC(
-    #         bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list, groundtruth_size= groundtruth_size,
-    #         bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
-    #         dark_n_iter= 500, dark_linear_n_iter= 100, dark_lr= None,
-    #         centre= centre, read_exsiting_csv= '4_quarter_bright_PPR_DPC_117x117_csv_file.csv', NA_range= [1, outer_NA_facter]
-    #     )
+    # x_est = _simulation.dark_field_with_DPC(
+    #     bright_field_angle_range= bright_angle_range, 
+    #     dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list, 
+    #     groundtruth_size= groundtruth_size,
+    #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
+    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
+    #     centre= centre, initial_est= cp.array(x_est), NA_range= [inner_NA_facter, outer_NA_facter],
+    #     extra_file_name = '3 patterns_'
+    # )
 
-    #     dark_multiplex_led_array_mask    = _simulation.dataset.get_dark_multiplex_led_array_mask(
-    #         multi_angle_range= multi_angle_range_list, multi_radius_range= multi_radius_range_list, show_angle_map= False)
-    #     reconstruction_size = _simulation.dataset.get_reconstruction_size(multiplex_led_array_mask= dark_multiplex_led_array_mask)
-    #     np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/4_quarter_dark_DPC_'
-    #                    + 'NA_range[{}, {}]_'.format(0,outer_NA_facter)+ str(reconstruction_size) +'x'+ str(reconstruction_size) +'_csv_file.csv',x_est.get(), delimiter=',')
+    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/3_circle_dark_PPR_DPC_NA[1.7,2]_174x174_csv_file.csv',x_est, delimiter=',')
 
 
-    # multi_angle_range_list  = [[0,180],[180,360],[90,270],[270,90]]
-    # inner_NA = _simulation.dataset.NA * 1.15
-    # outer_NA = _simulation.dataset.NA * 1.3
+    # multi_angle_range_list  = [[0,120],[120,240],[240,360]]
+    # outer_NA_facter = 2
+    # inner_NA = _simulation.dataset.NA * 0
+    # outer_NA = _simulation.dataset.NA * outer_NA_facter
     # inner_dark_radius       = (inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-inner_NA**2)/_simulation.dataset.led_pitch
     # outer_dark_radius       = (outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-outer_NA**2)/_simulation.dataset.led_pitch
     # single_radius_range     = [np.sqrt(2*(inner_dark_radius**2)), np.sqrt(2*(outer_dark_radius**2))]
-    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range]
-
-    # dark_multiplex_led_array_mask    = _simulation.dataset.get_dark_multiplex_led_array_mask(
-    #         multi_angle_range= multi_angle_range_list, multi_radius_range= multi_radius_range_list, show_angle_map= True)
-   
-
-    # # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    # second_multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360],
-    #                                   [0,90],[90,180],[180,270],[270,360]]
-
-    # second_inner_NA = _simulation.dataset.NA * 1.3
-    # second_outer_NA = _simulation.dataset.NA * 1.5
-    # second_inner_dark_radius       = (second_inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-second_inner_NA**2)/_simulation.dataset.led_pitch
-    # second_outer_dark_radius       = (second_outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-second_outer_NA**2)/_simulation.dataset.led_pitch
-    # second_single_radius_range     = [np.sqrt(2*(second_inner_dark_radius**2)), np.sqrt(2*(second_outer_dark_radius**2))]
-    # second_multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range,
-    #                                   second_single_radius_range,second_single_radius_range,second_single_radius_range,second_single_radius_range]
+    # multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range]
 
     # x_est = _simulation.dark_field_with_DPC(
-    #     bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= second_multi_angle_range_list, dark_multi_radius_range_list= second_multi_radius_range_list, groundtruth_size= groundtruth_size,
+    #     bright_field_angle_range= bright_angle_range, 
+    #     dark_multi_angle_range_list= multi_angle_range_list, dark_multi_radius_range_list= multi_radius_range_list, 
+    #     groundtruth_size= groundtruth_size,
     #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
-    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
-    #     centre= centre, read_exsiting_csv='4_quarter_dark_DPC_NA_range[0, 1.3]_167x167_csv_file.csv',NA_range= [1.3, 1.5]
+    #     dark_n_iter= 500, dark_linear_n_iter= 100, dark_lr= None,
+    #     centre= centre, read_exsiting_csv= '3_patterns_bright_PPR_DPC_100x100_csv_file.csv', NA_range= [1, outer_NA_facter],
+    #     extra_file_name = '3 patterns_'
     # )
 
-    # dark_multiplex_led_array_mask    = _simulation.dataset.get_dark_multiplex_led_array_mask(
-    #         multi_angle_range= second_multi_angle_range_list, multi_radius_range= second_multi_radius_range_list, show_angle_map= False)
-    # reconstruction_size = _simulation.dataset.get_reconstruction_size(multiplex_led_array_mask= dark_multiplex_led_array_mask)
-    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/4_quarter_dark_DPC_'
-    #                    + 'NA_range[1.3, 1.5]_'+ str(reconstruction_size) +'x'+ str(reconstruction_size) +'_csv_file.csv',x_est.get(), delimiter=',')
-    
-    # # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    
-    # third_multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360],
-    #                                   [0,90],[90,180],[180,270],[270,360],
-    #                                   [0,90],[90,180],[180,270],[270,360]]
-
-    # third_inner_NA = _simulation.dataset.NA * 1.5
-    # third_outer_NA = _simulation.dataset.NA * 1.7
-    # third_inner_dark_radius       = (third_inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-third_inner_NA**2)/_simulation.dataset.led_pitch
-    # third_outer_dark_radius       = (third_outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-third_outer_NA**2)/_simulation.dataset.led_pitch
-    # third_single_radius_range     = [np.sqrt(2*(third_inner_dark_radius**2)), np.sqrt(2*(third_outer_dark_radius**2))]
-    # third_multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range,
-    #                                   second_single_radius_range,second_single_radius_range,second_single_radius_range,second_single_radius_range,
-    #                                   third_single_radius_range,third_single_radius_range,third_single_radius_range,third_single_radius_range]
-
-    # x_est = _simulation.dark_field_with_DPC(
-    #     bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= third_multi_angle_range_list, dark_multi_radius_range_list= third_multi_radius_range_list, groundtruth_size= groundtruth_size,
-    #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
-    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
-    #     centre= centre, read_exsiting_csv='4_quarter_dark_DPC_NA_range[1.3, 1.5]_182x182_csv_file.csv',NA_range= [1.5, 1.7]
-    # )
-
-    # dark_multiplex_led_array_mask    = _simulation.dataset.get_dark_multiplex_led_array_mask(
-    #         multi_angle_range= third_multi_angle_range_list, multi_radius_range= third_multi_radius_range_list, show_angle_map= False)
-    # reconstruction_size = _simulation.dataset.get_reconstruction_size(multiplex_led_array_mask= dark_multiplex_led_array_mask)
-    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/4_quarter_dark_DPC_'
-    #                    + 'NA_range[1.5, 1.7]_'+ str(reconstruction_size) +'x'+ str(reconstruction_size) +'_csv_file.csv',x_est.get(), delimiter=',')
-    
-    # # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    
-    # fourth_multi_angle_range_list  = [[0,90],[90,180],[180,270],[270,360],
-    #                                   [0,90],[90,180],[180,270],[270,360],
-    #                                   [0,90],[90,180],[180,270],[270,360],
-    #                                   [0,90],[90,180],[180,270],[270,360]]
-
-    # fourth_inner_NA = _simulation.dataset.NA * 1.7
-    # fourth_outer_NA = _simulation.dataset.NA * 2
-    # fourth_inner_dark_radius       = (fourth_inner_NA*_simulation.dataset.led_d_z)/np.sqrt(1-fourth_inner_NA**2)/_simulation.dataset.led_pitch
-    # fourth_outer_dark_radius       = (fourth_outer_NA*_simulation.dataset.led_d_z)/np.sqrt(1-fourth_outer_NA**2)/_simulation.dataset.led_pitch
-    # fourth_single_radius_range     = [np.sqrt(2*(fourth_inner_dark_radius**2)), np.sqrt(2*(fourth_outer_dark_radius**2))]
-    # fourth_multi_radius_range_list = [single_radius_range,single_radius_range,single_radius_range,single_radius_range,
-    #                                   second_single_radius_range,second_single_radius_range,second_single_radius_range,second_single_radius_range,
-    #                                   third_single_radius_range,third_single_radius_range,third_single_radius_range,third_single_radius_range,
-    #                                   fourth_single_radius_range,fourth_single_radius_range,fourth_single_radius_range,fourth_single_radius_range]
-
-    # x_est = _simulation.dark_field_with_DPC(
-    #     bright_field_angle_range = bright_angle_range, dark_multi_angle_range_list= fourth_multi_angle_range_list, dark_multi_radius_range_list= fourth_multi_radius_range_list, groundtruth_size= groundtruth_size,
-    #     bright_n_iter= 100, bright_linear_n_iter= 100, bright_lr= None,
-    #     dark_n_iter= 100, dark_linear_n_iter= 100, dark_lr= None,
-    #     centre= centre, read_exsiting_csv='4_quarter_dark_DPC_NA_range[1.5, 1.7]_196x196_csv_file.csv',NA_range= [1.7, 2]
-    # )
-
-    # dark_multiplex_led_array_mask    = _simulation.dataset.get_dark_multiplex_led_array_mask(
-    #         multi_angle_range= third_multi_angle_range_list, multi_radius_range= third_multi_radius_range_list, show_angle_map= False)
-    # reconstruction_size = _simulation.dataset.get_reconstruction_size(multiplex_led_array_mask= dark_multiplex_led_array_mask)
-    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/4_quarter_dark_DPC_'
-    #                    + 'NA_range[1.7, 2]_'+ str(reconstruction_size) +'x'+ str(reconstruction_size) +'_csv_file.csv',x_est.get(), delimiter=',')
-
-    ## FPM ====================
-    ## ========================
-    # centre             = [50,60]
-    # groundtruth_size   = 256
-
-    # _simulation.bright_FPM(groundtruth_size= groundtruth_size, n_iter=2000, lr= 1e-2, centre= centre, amp_based_or_not= True)
-
-    # NA_range        = [0,2]
-    # desired_NA      = _simulation.dataset.NA * (NA_range[1]+0.5)
-    # desired_radius  = ((desired_NA*_simulation.dataset.led_d_z)/np.sqrt(1-desired_NA**2)/_simulation.dataset.led_pitch)
-
-    # _simulation.FPM(groundtruth_size= groundtruth_size, radius= desired_radius, n_iter=2000, lr= 1e-2, centre= centre, amp_based_or_not= True, NA_range= NA_range)
-
-    
-    # for n_iter in [500,1000,2000]:
-    #     delete_file(f'_FPM/amp_based/n_iter={n_iter}')
-    #     for outer_NA in [1.3,1.5,1.7,2]:
-    #         NA_range        = [0,outer_NA]
-    #         desired_NA      = _simulation.dataset.NA * (NA_range[1]+0.5)
-    #         desired_radius  = ((desired_NA*_simulation.dataset.led_d_z)/np.sqrt(1-desired_NA**2)/_simulation.dataset.led_pitch)
-
-    #         _simulation.FPM(groundtruth_size= groundtruth_size, radius= desired_radius, n_iter= n_iter, lr= 1e-2, centre= centre, amp_based_or_not= True, NA_range= NA_range, for_loop_or_not= True)
+    # np.savetxt('/home/kshen/Ptychography_Project/phase-retrieval-library/phase-retrieval-library/dataset/Simulation/3_circle_dark_PPR_DPC_NA[1,2]_174x174_iter=500_csv_file.csv',x_est, delimiter=',')
