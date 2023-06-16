@@ -150,7 +150,7 @@ class PerturbativePhase:
         self.current_iter = 0
         self.loss_list = []
 
-    def iterate_GradientDescent(self, y, initial_est=None, n_iter=100, linear_n_iter=20, lr=1e-1):
+    def iterate_GradientDescent(self, y, initial_est=None, n_iter=100, linear_n_iter=20, lr=1e-1, alpha= 0):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -161,18 +161,19 @@ class PerturbativePhase:
             self.loss_list.append(loss)
             self.current_iter += 1
 
-            perturbative_model = self.pr_model.get_perturbative_model(x_est, method= 'GradientDescent')
+            perturbative_model,_  = self.pr_model.get_perturbative_model(x_est, method= 'GradientDescent')
             
             y_est = self.pr_model.apply_ModularSquare(x_est)
             epsilon = np.zeros_like(x_est)
             for _ in range(linear_n_iter):
-                grad = (-2 * perturbative_model.apply(y - y_est - perturbative_model.apply(epsilon)))                   
+                grad = (-2 * perturbative_model.applyT(y - y_est - perturbative_model.apply( epsilon )))
+                grad = grad + alpha * x_est
                 epsilon = epsilon - lr*grad
             print(self.current_iter)
             x_est += epsilon
         return x_est
 
-    def iterate_ConjugateGradientDescent(self, y, initial_est=None, n_iter=100, linear_n_iter=20):
+    def iterate_ConjugateGradientDescent(self, y, initial_est=None, n_iter=100, linear_n_iter=20, tolerance= 1e-9, _lambda= 0):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -183,7 +184,7 @@ class PerturbativePhase:
             self.loss_list.append(loss)
             self.current_iter += 1
 
-            perturbative_model = self.pr_model.get_perturbative_model(x_est, method= 'ConjugateGradientDescent')
+            perturbative_model,_ = self.pr_model.get_perturbative_model(x_est, method= 'ConjugateGradientDescent')
 
             y_est = self.pr_model.apply_ModularSquare(x_est)
 
@@ -195,8 +196,12 @@ class PerturbativePhase:
                 alpha = (res.ravel().T.conj() @ res.ravel())/(descent_direction.ravel().T.conj() @ perturbative_model.applyT(perturbative_model.apply(descent_direction)).ravel())
                 epsilon_expand = epsilon_expand + alpha*descent_direction
                 r_new = res + alpha * (perturbative_model.applyT(perturbative_model.apply(descent_direction)))
+                r_new = r_new + 2 * _lambda * np.concatenate((np.real(x_est), np.imag(x_est)), axis=0)
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
+                # print(np.abs(np.sum(res)))
+                if np.abs(np.sum(res)) < tolerance:
+                    break
             epsilon = epsilon_expand[:self.pr_model.in_shape[0]] + epsilon_expand[self.pr_model.in_shape[0]:]* 1j
             print(self.current_iter)
             x_est += epsilon

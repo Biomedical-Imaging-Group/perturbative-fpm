@@ -125,7 +125,8 @@ class LinOpImag(BaseLinOp):
         return np.imag(x)
 
     def applyT(self, x):
-        return np.zeros_like(x, dtype= np.complex128)
+        # return np.zeros_like(x, dtype= np.complex128)
+        return x 
 
 class LinOp_RealPartExpand(BaseLinOp):
     def __init__(self, LinOp:BaseLinOp):
@@ -134,7 +135,7 @@ class LinOp_RealPartExpand(BaseLinOp):
         self.out_shape = LinOp.out_shape
     
     def apply(self,x):
-        return np.real(self.LinOp.apply(x[0:self.LinOp.in_shape[0]])) - np.imag(self.LinOp.apply(x[-self.LinOp.in_shape[0]:]) )
+        return np.real(self.LinOp.apply(x[0:self.LinOp.in_shape[0]])) - np.imag(self.LinOp.apply(x[-self.LinOp.in_shape[0]:]))
 
     def applyT(self,x):
         return np.concatenate((np.real(self.LinOp.applyT(x)), np.imag(self.LinOp.applyT(x))), axis=0)

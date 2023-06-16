@@ -6,9 +6,10 @@ class PhaseRetrievalBase:
     def __init__(self, linop:BaseLinOp):
         self.linop = linop
         self.in_shape = None
+        self.probe_shape = None
 
-    def apply_ModularSquare(self, x):
-        return np.abs(self.linop.apply(x))**2
+    def apply_ModularSquare(self, x:np.ndarray):
+        return np.abs(self.linop.apply(x) * (self.probe_shape[0]/x.shape[0]) )**2
 
     def apply(self, x):
         return self.linop.apply(x)
@@ -290,7 +291,7 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
             single_y = 0
             for idx, mask_item in enumerate(i_mask):
                 if (mask_item != False) and (mask_item != 0):
-                    single_y += np.abs(self.total_linop_list[idx].apply(x))**2 * mask_item
+                    single_y += np.abs(self.total_linop_list[idx].apply(x) * (self.probe_shape[0]/x.shape[0]) )**2 * mask_item
             if y_est is None:
                 y_est = np.copy(single_y)
             else:
@@ -322,7 +323,7 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
                         _perturbative_model += 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ self.total_linop_list[idx] * mask_item
             perturbative_model_list.append(_perturbative_model)
         perturbative_model = StackLinOp(perturbative_model_list)  
-        return perturbative_model
+        return perturbative_model, perturbative_model_list
 
     def get_perturbative_ConjugateGradientDescent_model(self, x_est):
         perturbative_model_list = []
@@ -335,17 +336,43 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
                         _perturbative_model = LinOp_RealPartExpand (2 * LinOpMul(_out_field.conj()) @ self.total_linop_list[idx]) * mask_item
                     else:
                         _perturbative_model += LinOp_RealPartExpand (2 * LinOpMul(_out_field.conj()) @ self.total_linop_list[idx]) * mask_item
-            perturbative_model_list.append(_perturbative_model)
+            perturbative_model_list.append(_perturbative_model)        
         perturbative_model = StackLinOp(perturbative_model_list)  
-        return perturbative_model
+        return perturbative_model, perturbative_model_list
 
     def get_probe_overlap_map(self) -> np.ndarray:
         pad_size    = self.reconstruct_shape[0] - self.probe_shape[0]
         shift_probe = np.fft.fftshift(self.probe)
         shift_probe = np.pad(shift_probe ,(int(np.floor(pad_size/2)), int(np.ceil(pad_size/2))), mode='constant')
 
-        overlap_img = np.zeros(shape= self.reconstruct_shape)
-        for i_probe in range(self.n_img):
-            roll_linop  = LinOpRoll2(-self.shifts_pair[i_probe,0],-self.shifts_pair[i_probe,1])
-            overlap_img = overlap_img + roll_linop.apply(shift_probe)
+        overlap_img = np.zeros_like(shift_probe)
+        for _, i_mask in enumerate(self.multiplex_led_mask):
+            for idx, mask_item in enumerate(i_mask):
+                if mask_item >= 1:
+                    roll_linop  = LinOpRoll2(-self.shifts_pair[idx,0],-self.shifts_pair[idx,1])
+                    overlap_img = overlap_img + roll_linop.apply(shift_probe)
         return overlap_img
+
+# class Multiplexed_Perturbative_GradientDescent_model(PhaseRetrievalBase):
+#     def __init__(self, probe, multiplex_led_mask:np.ndarray, shifts_pair:np.ndarray= None):
+#         """This is a special perturbative model for multiplex pattern"""
+#         self.multiplex_led_mask = multiplex_led_mask
+#         self.total_linop_list   = shifts_pair
+
+#     def apply(self, x):
+#         pass
+        
+#     def applyT(self, x):
+#         pass
+
+#     def get_forward_model(self, x_est):
+#         perturbative_model_list = []
+#         for _, i_mask in enumerate(self.multiplex_led_mask):
+#             for idx, mask_item in enumerate(i_mask):
+#                 if (mask_item != False) and (mask_item != 0):
+#                     _out_field = self.total_linop_list[idx].apply(x_est)
+#                         _perturbative_model = 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ self.total_linop_list[idx] * mask_item
+#                     else:
+#                         _perturbative_model += 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ self.total_linop_list[idx] * mask_item
+#             perturbative_model_list.append(_perturbative_model)
+#         perturbative_model = StackLinOp(perturbative_model_list)  
