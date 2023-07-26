@@ -65,12 +65,12 @@ class Ptychography1d(PhaseRetrievalBase):
     def get_perturbative_GradientDescent_model(self, x_est):
         out_field = self.apply(x_est)
         perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.linop
-        return perturbative_model
+        return perturbative_model, None
 
     def get_perturbative_ConjugateGradientDescent_model(self, x_est):
         out_field = self.apply(x_est)
         perturbative_model = LinOp_RealPartExpand (2 * LinOpMul(out_field.conj()) @ self.linop)
-        return perturbative_model
+        return perturbative_model, None
     
     def get_probe_overlap_array(self) -> np.ndarray:
         overlap_img = np.zeros(shape= self.probe_shape)
@@ -143,12 +143,12 @@ class FourierPtychography2d(PhaseRetrievalBase):
     def get_perturbative_GradientDescent_model(self, x_est):
         out_field = self.apply(x_est)
         perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.linop
-        return perturbative_model
+        return perturbative_model, None
 
     def get_perturbative_ConjugateGradientDescent_model(self, x_est):
         out_field = self.apply(x_est)
         perturbative_model = LinOp_RealPartExpand (2 * LinOpMul(out_field.conj()) @ self.linop)
-        return perturbative_model
+        return perturbative_model, None
     
     def get_overlap_rate(self) -> float:
         """self-defined shifts_pair might cause error"""
@@ -236,12 +236,12 @@ class XRay_Ptychography2d(PhaseRetrievalBase):
     def get_perturbative_GradientDescent_model(self, x_est):
         out_field = self.apply(x_est)
         perturbative_model = 2 * LinOpReal() @ LinOpMul(out_field.conj()) @ self.linop
-        return perturbative_model
+        return perturbative_model, None
 
     def get_perturbative_ConjugateGradientDescent_model(self, x_est):
         out_field = self.apply(x_est)
         perturbative_model = LinOp_RealPartExpand (2 * LinOpMul(out_field.conj()) @ self.linop)
-        return perturbative_model
+        return perturbative_model, None
 
     def get_probe_overlap_map(self) -> np.ndarray:
         op_fcrop = LinOpCrop2(in_shape= self.reconstruct_shape, crop_shape= self.probe_shape)
@@ -352,27 +352,3 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
                     roll_linop  = LinOpRoll2(-self.shifts_pair[idx,0],-self.shifts_pair[idx,1])
                     overlap_img = overlap_img + roll_linop.apply(shift_probe)
         return overlap_img
-
-# class Multiplexed_Perturbative_GradientDescent_model(PhaseRetrievalBase):
-#     def __init__(self, probe, multiplex_led_mask:np.ndarray, shifts_pair:np.ndarray= None):
-#         """This is a special perturbative model for multiplex pattern"""
-#         self.multiplex_led_mask = multiplex_led_mask
-#         self.total_linop_list   = shifts_pair
-
-#     def apply(self, x):
-#         pass
-        
-#     def applyT(self, x):
-#         pass
-
-#     def get_forward_model(self, x_est):
-#         perturbative_model_list = []
-#         for _, i_mask in enumerate(self.multiplex_led_mask):
-#             for idx, mask_item in enumerate(i_mask):
-#                 if (mask_item != False) and (mask_item != 0):
-#                     _out_field = self.total_linop_list[idx].apply(x_est)
-#                         _perturbative_model = 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ self.total_linop_list[idx] * mask_item
-#                     else:
-#                         _perturbative_model += 2 * LinOpReal() @ LinOpMul(_out_field.conj()) @ self.total_linop_list[idx] * mask_item
-#             perturbative_model_list.append(_perturbative_model)
-#         perturbative_model = StackLinOp(perturbative_model_list)  

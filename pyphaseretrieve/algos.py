@@ -19,7 +19,7 @@ class GradientDescent:
         self.current_iter = 0
         self.loss_list = []
 
-    def iterate(self, y, initial_est=None, n_iter=100, lr=1):
+    def iterate(self, y, initial_est=None, n_iter=100, lr=1, alpha=0):
         if initial_est is not None:
             x_est = np.copy(initial_est)
         else:
@@ -39,8 +39,6 @@ class GradientDescent:
                 actual_lr = self.find_lr(x_est, y, descent_direction, grad, loss, initial_lr=lr)
             else:
                 actual_lr = lr
-            print(self.current_iter)
-            # print(actual_lr)
             x_est += actual_lr * descent_direction
         return x_est 
 
@@ -199,11 +197,9 @@ class PerturbativePhase:
                 r_new = r_new + 2 * _lambda * np.concatenate((np.real(x_est), np.imag(x_est)), axis=0)
                 descent_direction = -r_new + ((r_new.ravel().T.conj()@r_new.ravel())/(res.ravel().T.conj()@res.ravel()))*descent_direction
                 res = r_new
-                # print(np.abs(np.sum(res)))
                 if np.abs(np.sum(res)) < tolerance:
                     break
             epsilon = epsilon_expand[:self.pr_model.in_shape[0]] + epsilon_expand[self.pr_model.in_shape[0]:]* 1j
-            print(self.current_iter)
             x_est += epsilon
         return x_est
 
