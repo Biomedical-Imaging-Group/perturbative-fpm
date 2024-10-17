@@ -9,7 +9,7 @@ import pyphaseretrieve.linop as plinop
 class GradientDescent:
     def __init__(
         self,
-        pr_model: pp.PhaseRetrievalBase,
+        pr_model: pp.FourierPtychography,
         loss_func: Optional[pl.LossFunction] = None,
         line_search=None,
         acceleration=None,
@@ -30,9 +30,9 @@ class GradientDescent:
 
     def iterate(self, y, initial_est=None, n_iter=100, lr=1, alpha=0):
         if initial_est is not None:
-            x_est = np.copy(initial_est)
+            x_est = th.copy(initial_est)
         else:
-            x_est = np.ones(shape=self.x_shape, dtype=np.complex128)
+            x_est = th.ones(shape=self.x_shape, dtype=th.complex128)
 
         for i_iter in range(n_iter):
             loss, grad = self.loss_func.compute_loss(y, self.pr_model, x_est)
@@ -57,9 +57,9 @@ class GradientDescent:
         self, y, initial_est=None, n_iter=100, lr=1
     ):
         if initial_est is not None:
-            x_est = np.copy(initial_est)
+            x_est = th.copy(initial_est)
         else:
-            x_est = np.ones(shape=self.x_shape, dtype=np.complex128)
+            x_est = th.ones(shape=self.x_shape, dtype=th.complex128)
 
         pr_model_linop_list = self.pr_model.get_linop_list()
 
@@ -77,7 +77,7 @@ class GradientDescent:
                         + self.pr_model.probe_shape[0],
                         :,
                     ],
-                    PhaseRetrievalBase(i_linop),
+                    pp.FourierPtychography(i_linop),
                     x_est,
                 )
                 x_est += lr * (-grad)
@@ -97,15 +97,15 @@ class GradientDescent:
         tau=0.5,
     ):
         lr = initial_lr
-        m = np.real(current_grad.ravel().T.conj() @ descent_direction.ravel())
+        m = th.real(current_grad.ravel().T.conj() @ descent_direction.ravel())
         if m >= 0:
             print(
                 "There may be a sign error in the computation of the descent direction."
             )
         while True:
             new_x_est = x_est + lr * descent_direction
-            new_y_est = np.abs(self.pr_model.apply(new_x_est)) ** 2
-            new_loss = np.sum((new_y_est - y) ** 2)
+            new_y_est = th.abs(self.pr_model.apply(new_x_est)) ** 2
+            new_loss = th.sum((new_y_est - y) ** 2)
             if new_loss <= initial_loss + lr * c * m:
                 break
             lr = tau * lr
@@ -118,9 +118,9 @@ class GradientDescent:
                 self.previous_direction = -grad
                 return -grad
             else:
-                beta = np.maximum(
+                beta = th.maximum(
                     0,
-                    np.real(
+                    th.real(
                         grad.ravel().conj().T
                         @ (grad.ravel() - self.previous_grad.ravel())
                         / (
@@ -137,53 +137,53 @@ class GradientDescent:
 
 
 class SpectralMethod:
-    def __init__(self, pr_model: pp.PhaseRetrievalBase):
+    def __init__(self, pr_model: pp.FourierPtychography):
         self.pr_model = pr_model
         self.x_shape = pr_model.in_shape
 
     def iterate(self, y, initial_est=None, n_iter=100, method="Lu"):
-        y_norm = y / np.mean(y)
+        y_norm = y / th.mean(y)
         if method == "Lu":
-            threshold = np.maximum(1 - 1 / y_norm, -1)
+            threshold = th.maximum(1 - 1 / y_norm, -1)
         else:
             threshold = y_norm
 
         if initial_est is not None:
-            x_est = np.copy(initial_est)
+            x_est = th.copy(initial_est)
         else:
-            x_est = np.random.randn(*self.x_shape)
+            x_est = th.random.randn(*self.x_shape)
 
-        for i_iter in range(np.minimum(n_iter, 10)):
+        for i_iter in range(th.minimum(n_iter, 10)):
             x_new = self.pr_model.apply(x_est)
             x_new = threshold * x_new
             x_new = self.pr_model.applyT(x_new)
-            x_est = x_new / np.linalg.norm(x_new)
+            x_est = x_new / th.linalg.norm(x_new)
 
         x_new = self.pr_model.apply(x_est)
         x_new = threshold * x_new
         x_new = self.pr_model.applyT(x_new)
-        corr = np.real(x_new.ravel().T.conj() @ x_est.ravel())
+        corr = th.real(x_new.ravel().T.conj() @ x_est.ravel())
 
         if corr < 0:
             for i_iter in range(n_iter):
                 x_new = self.pr_model.apply(x_est)
                 x_new = threshold * x_new
                 x_new = self.pr_model.applyT(x_new)
-                x_new = x_new + 1.1 * np.abs(corr) * x_est
-                x_est = x_new / np.linalg.norm(x_new)
+                x_new = x_new + 1.1 * th.abs(corr) * x_est
+                x_est = x_new / th.linalg.norm(x_new)
         else:
             for i_iter in range(n_iter - 10):
                 x_new = self.pr_model.apply(x_est)
                 x_new = threshold * x_new
                 x_new = self.pr_model.applyT(x_new)
-                x_est = x_new / np.linalg.norm(x_new)
+                x_est = x_new / th.linalg.norm(x_new)
         return x_est
 
 
 class PerturbativePhase:
     def __init__(
         self,
-        pr_model: pp.PhaseRetrievalBase,
+        pr_model: pp.FourierPtychography,
         loss_func: Optional[pl.LossFunction] = None,
     ):
         """min {Y-|Ax|**2 - B*epsilon}"""
@@ -208,9 +208,9 @@ class PerturbativePhase:
         alpha=0,
     ):
         if initial_est is not None:
-            x_est = np.copy(initial_est)
+            x_est = th.copy(initial_est)
         else:
-            x_est = np.ones(shape=self.x_shape, dtype=np.complex128)
+            x_est = th.ones(shape=self.x_shape, dtype=th.complex128)
 
         for i_iter in range(n_iter):
             loss = self.loss_func.compute_loss(
@@ -223,15 +223,14 @@ class PerturbativePhase:
                 x_est, method="GradientDescent"
             )
 
-            y_est = self.pr_model.apply_ModularSquare(x_est)
-            epsilon = np.zeros_like(x_est)
+            y_est = self.pr_model.forward(x_est)
+            epsilon = th.zeros_like(x_est)
             for _ in range(linear_n_iter):
                 grad = -2 * perturbative_model.applyT(
                     y - y_est - perturbative_model.apply(epsilon)
                 )
                 grad = grad + alpha * x_est
                 epsilon = epsilon - lr * grad
-            print(self.current_iter)
             x_est += epsilon
         return x_est
 
@@ -245,25 +244,23 @@ class PerturbativePhase:
         tolerance=1e-9,
         _lambda=0,
     ):
-        x = x0.copy()
+        x = x0.clone()
 
         for i_iter in range(n_iter):
+            print(i_iter)
             loss = self.loss_func.compute_loss(
                 y, self.pr_model, x, compute_grad=False
             )
             self.loss_list.append(loss)
             self.current_iter += 1
 
-            perturbative_model, _ = self.pr_model.get_perturbative_model(
-                x, method="ConjugateGradientDescent"
-            )
-
-            y_est = self.pr_model.apply_ModularSquare(x)
+            y_est = self.pr_model.forward(x)
+            perturbative_model, _ = self.pr_model.jacobian(x)
             A = perturbative_model.T() @ perturbative_model
             epsilon = cg(
                 A,
                 perturbative_model.applyT(y - y_est),
-                np.zeros((*x.shape, 2)),
+                x.new_zeros((*x.shape, 2)),
                 n_iter=linear_n_iter,
                 tol=tolerance,
             )
@@ -281,7 +278,7 @@ def cg(
     tol: float = 1e-9,
     dim: tuple[int, ...] = (0, 1, 2),
 ):
-    x = x0.copy()
+    x = x0.clone()
     r = b - A.apply(x)
     p = r
     for _ in range(n_iter):
@@ -293,16 +290,16 @@ def cg(
             axis=dim
         )
         p = r_new + beta * p
-        r = r_new.copy()
-        if np.sqrt((r**2).sum(axis=dim)) < tol:
+        r = r_new.clone()
+        if th.sqrt((r**2).sum(axis=dim)) < tol:
             break
     return x
 
 
 class GerchbergSaxton:
     def __init__(self, near_field_intensity, far_field_intensity):
-        self.amp_fourier_space = np.sqrt(far_field_intensity)
-        self.amp_real_space = np.sqrt(near_field_intensity)
+        self.amp_fourier_space = th.sqrt(far_field_intensity)
+        self.amp_real_space = th.sqrt(near_field_intensity)
 
         self.x_shape = near_field_intensity.shape
         self.lost_list = []
@@ -310,25 +307,25 @@ class GerchbergSaxton:
 
     def iterate(self, initial_est=None, n_iter=100):
         if initial_est is not None:
-            phase_est = np.copy(initial_est)
+            phase_est = th.copy(initial_est)
         else:
-            phase_est = np.ones(shape=self.x_shape, dtype=np.complex128)
+            phase_est = th.ones(shape=self.x_shape, dtype=th.complex128)
 
-        field_real_space = self.amp_real_space * np.exp(1j * phase_est)
+        field_real_space = self.amp_real_space * th.exp(1j * phase_est)
         for i_iter in range(n_iter):
-            _field_fourier_space = np.fft.fft2(field_real_space)
-            field_fourier_space = self.amp_fourier_space * np.exp(
-                1j * np.angle(_field_fourier_space)
+            _field_fourier_space = th.fft.fft2(field_real_space)
+            field_fourier_space = self.amp_fourier_space * th.exp(
+                1j * th.angle(_field_fourier_space)
             )
 
-            _field_real_space = np.fft.ifft2(field_fourier_space)
-            field_real_space = self.amp_real_space * np.exp(
-                1j * np.angle(_field_real_space)
+            _field_real_space = th.fft.ifft2(field_fourier_space)
+            field_real_space = self.amp_real_space * th.exp(
+                1j * th.angle(_field_real_space)
             )
 
-            lost = np.sum(
-                (np.abs(_field_fourier_space) - self.amp_fourier_space) ** 2
-            ) / np.sum((self.amp_fourier_space) ** 2)
+            lost = th.sum(
+                (th.abs(_field_fourier_space) - self.amp_fourier_space) ** 2
+            ) / th.sum((self.amp_fourier_space) ** 2)
             self.lost_list.append(lost)
             self.current_iter += 1
 

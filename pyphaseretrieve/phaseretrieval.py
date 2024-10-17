@@ -1,18 +1,17 @@
 from abc import abstractmethod
+import torch as th
 from typing import Optional
 import numpy as np
 import pyphaseretrieve.linop as pl
 
 
-class PhaseRetrievalBase:
+class FourierPtychography:
     def __init__(self, linop: pl.BaseLinOp):
         self.linop = linop
-        self.in_shape = None
-        self.probe_shape = None
 
-    def apply_ModularSquare(self, x: np.ndarray):
+    def forward(self, x: np.ndarray):
         return (
-            np.abs(self.linop.apply(x) * (self.probe_shape[0] / x.shape[0]))
+            np.abs(self.linop.apply(x) * (self.probe.shape[0] / x.shape[0]))
             ** 2
         )
 
@@ -30,7 +29,7 @@ class PhaseRetrievalBase:
         pass
 
 
-class Ptychography1d(PhaseRetrievalBase):
+class Ptychography1d(FourierPtychography):
     def __init__(self, probe, shifts: np.ndarray = None, n_img: int = 10):
         self.probe = probe
         self.probe_shape = probe.shape
@@ -100,7 +99,7 @@ class Ptychography1d(PhaseRetrievalBase):
         return overlap
 
 
-class FourierPtychography2d(PhaseRetrievalBase):
+class FourierPtychography2d(FourierPtychography):
     def __init__(
         self,
         probe,
@@ -237,7 +236,7 @@ class FourierPtychography2d(PhaseRetrievalBase):
         return overlap_img
 
 
-class XRay_Ptychography2d(PhaseRetrievalBase):
+class XRay_Ptychography2d(FourierPtychography):
     def __init__(
         self,
         probe,
@@ -348,74 +347,48 @@ class XRay_Ptychography2d(PhaseRetrievalBase):
         return overlap_img
 
 
-class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
+class MultiplexedFourierPtychography(FourierPtychography):
     def __init__(
         self,
         probe,
-        multiplex_led_mask: np.ndarray,
-        shifts_pair: np.ndarray = None,
-        reconstruct_shape=None,
+        multiplex_led_mask: th.Tensor,
+        all_shifts: list[th.Tensor],
+        reconstruct_shape: tuple[int],
     ):
-        """shifts_pair is defined as [v_shifts,h_shifts]"""
         self.probe = probe
-        self.probe_shape = probe.shape
         self.multiplex_led_mask = multiplex_led_mask
-
-        if reconstruct_shape is not None:
-            self.reconstruct_shape = reconstruct_shape
-        else:
-            self.reconstruct_shape = self.probe_shape
-
-        assert shifts_pair.ndim == 2, "shifts_map dimension should be (n,2)"
-        self.n_img = self.multiplex_led_mask.shape[0]
-        self.shifts_pair = shifts_pair
-
-        self.total_linop_list = self.get_total_linop_list()
-        self.in_shape = reconstruct_shape
-
-    def get_total_linop_list(self) -> list:
-        op_ifft2 = pl.LinOpIFFT2()
-        op_fftshift = pl.LinOpFFTSHIFT()
-        op_ifftshift = pl.LinOpIFFTSHIFT()
-        op_fcrop = pl.LinOpCrop2(
-            in_shape=self.reconstruct_shape, crop_shape=self.probe_shape
+        self.all_shifts = all_shifts
+        self.crop = pl.LinOpCrop2(
+            in_shape=reconstruct_shape, crop_shape=reconstruct_shape
         )
-        op_probe = pl.LinOpMul(self.probe)
 
-        total_linop_list = []
-        for i_probe in range(self.shifts_pair.shape[0]):
-            _linop = (
-                op_ifft2
-                @ op_probe
-                @ op_ifftshift
-                @ op_fcrop
-                @ op_fftshift
-                @ pl.LinOpRoll2(
-                    self.shifts_pair[i_probe, 0], self.shifts_pair[i_probe, 1]
-                )
-            )
-            total_linop_list.append(_linop)
-        return total_linop_list
+    def forward(self, x):
+        y = th.empty((x.shape[0], len(self.all_shifts), *x.shape[2:]))
+        for i, shifts in enumerate(self.all_shifts):
+            n, _, h, w = x.shape
+            c = shifts.shape[0]
+            expanded = x.expand(-1, c, -1, -1)
+            # https://discuss.pytorch.org/t/tensor-shifts-in-torch-roll/170655/2
+            # This is still not really optimal, lots of stuff done for nothing
+            ind0 = th.arange(n)[:, None, None, None].expand(n, c, h, w)
+            ind1 = th.arange(c)[None, :, None, None].expand(n, c, h, w)
+            ind2 = th.arange(h)[None, None, :, None].expand(n, c, h, w)
+            ind3 = th.arange(w)[None, None, None, :].expand(n, c, h, w)
 
-    def apply_ModularSquare(self, x):
-        y_est = None
-        for _, i_mask in enumerate(self.multiplex_led_mask):
-            single_y = 0
-            for idx, mask_item in enumerate(i_mask):
-                if (mask_item != False) and (mask_item != 0):
-                    single_y += (
-                        np.abs(
-                            self.total_linop_list[idx].apply(x)
-                            * (self.probe_shape[0] / x.shape[0])
-                        )
-                        ** 2
-                        * mask_item
-                    )
-            if y_est is None:
-                y_est = np.copy(single_y)
-            else:
-                y_est = np.concatenate((y_est, single_y), axis=0)
-        return y_est
+            rolled = expanded[
+                ind0,
+                ind1,
+                (ind2 + shifts[:, 0, None, None, None]) % h,
+                (ind3 + shifts[:, 1, None, None, None]) % w,
+            ]
+            fftshifted = th.fft.fftshift(rolled, dim=(-2, -1))
+            cropped = self.crop(fftshifted)
+            ifftshifted = th.fft.ifftshift(cropped, dim=(-2, -1))
+            multiplied = self.probe[None, None] * ifftshifted
+            iffted = th.fft.ifft2(multiplied, norm="ortho")
+            y[:, i] = (th.abs(iffted) ** 2).sum(1)
+
+        return y
 
     def apply(self, x):
         raise NameError("No apply method in MultiplexedPhaseRetrieval")
@@ -423,54 +396,19 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
     def applyT(self, x):
         raise NameError("No applyT method in MultiplexedPhaseRetrieval")
 
-    def get_perturbative_model(self, x_est, method: str):
-        if method == "GradientDescent":
-            return self.get_perturbative_GradientDescent_model(x_est=x_est)
-        elif method == "ConjugateGradientDescent":
-            return self.get_perturbative_ConjugateGradientDescent_model(
-                x_est=x_est
-            )
-
-    def get_perturbative_GradientDescent_model(self, x_est):
+    def jacobian(self, x_est):
         perturbative_model_list = []
         for _, i_mask in enumerate(self.multiplex_led_mask):
             _perturbative_model = None
             for idx, mask_item in enumerate(i_mask):
-                if (mask_item != False) and (mask_item != 0):
-                    _out_field = self.total_linop_list[idx].apply(x_est)
-                    if _perturbative_model is None:
-                        _perturbative_model = (
-                            2
-                            * pl.LinOpReal()
-                            @ pl.LinOpMul(_out_field.conj())
-                            @ self.total_linop_list[idx]
-                            * mask_item
-                        )
-                    else:
-                        _perturbative_model += (
-                            2
-                            * pl.LinOpReal()
-                            @ pl.LinOpMul(_out_field.conj())
-                            @ self.total_linop_list[idx]
-                            * mask_item
-                        )
-            perturbative_model_list.append(_perturbative_model)
-        perturbative_model = pl.StackLinOp(perturbative_model_list)
-        return perturbative_model, perturbative_model_list
-
-    def get_perturbative_ConjugateGradientDescent_model(self, x_est):
-        perturbative_model_list = []
-        for _, i_mask in enumerate(self.multiplex_led_mask):
-            _perturbative_model = None
-            for idx, mask_item in enumerate(i_mask):
-                if (mask_item != False) and (mask_item != 0):
-                    _out_field = self.total_linop_list[idx].apply(x_est)
+                if mask_item:
+                    _out_field = self.linops[idx].apply(x_est)
                     if _perturbative_model is None:
                         _perturbative_model = (
                             pl.LinOp_RealPartExpand(
                                 2
                                 * pl.LinOpMul(_out_field.conj())
-                                @ self.total_linop_list[idx]
+                                @ self.linops[idx]
                             )
                             * mask_item
                         )
@@ -479,13 +417,14 @@ class MultiplexedPhaseRetrieval(PhaseRetrievalBase):
                             pl.LinOp_RealPartExpand(
                                 2
                                 * pl.LinOpMul(_out_field.conj())
-                                @ self.total_linop_list[idx]
+                                @ self.linops[idx]
                             )
                             * mask_item
                         )
             perturbative_model_list.append(_perturbative_model)
         perturbative_model = pl.StackLinOp(perturbative_model_list)
-        return perturbative_model, perturbative_model_list
+
+        return perturbative_model
 
     def get_probe_overlap_map(self) -> np.ndarray:
         pad_size = self.reconstruct_shape[0] - self.probe_shape[0]

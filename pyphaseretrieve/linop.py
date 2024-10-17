@@ -1,4 +1,5 @@
 import numpy as np
+import torch as th
 from pyphaseretrieve.base_linop import BaseLinOp
 
 
@@ -37,10 +38,10 @@ class LinOpFFT(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.fft.fft(x, norm="ortho")
+        return th.fft.fft(x, norm="ortho")
 
     def applyT(self, x):
-        return np.fft.ifft(x, norm="ortho")
+        return th.fft.ifft(x, norm="ortho")
 
 
 class LinOpIFFT(BaseLinOp):
@@ -49,10 +50,10 @@ class LinOpIFFT(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.fft.ifft(x, norm="ortho")
+        return th.fft.ifft(x, norm="ortho")
 
     def applyT(self, x):
-        return np.fft.fft(x, norm="ortho")
+        return th.fft.fft(x, norm="ortho")
 
 
 class LinOpFFTSHIFT(BaseLinOp):
@@ -61,10 +62,10 @@ class LinOpFFTSHIFT(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.fft.fftshift(x)
+        return th.fft.fftshift(x)
 
     def applyT(self, x):
-        return np.fft.ifftshift(x)
+        return th.fft.ifftshift(x)
 
 
 class LinOpIFFTSHIFT(BaseLinOp):
@@ -73,10 +74,10 @@ class LinOpIFFTSHIFT(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.fft.ifftshift(x)
+        return th.fft.ifftshift(x)
 
     def applyT(self, x):
-        return np.fft.fftshift(x)
+        return th.fft.fftshift(x)
 
 
 class LinOpId(BaseLinOp):
@@ -97,10 +98,10 @@ class LinOpFlip(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.flip(x)
+        return th.flip(x)
 
     def applyT(self, x):
-        return np.flip(x)
+        return th.flip(x)
 
 
 class LinOpRoll(BaseLinOp):
@@ -110,10 +111,10 @@ class LinOpRoll(BaseLinOp):
         self.shifts = int(shifts)
 
     def apply(self, x):
-        return np.roll(x, shift=self.shifts, axis=0)
+        return th.roll(x, shift=self.shifts, dims=0)
 
     def applyT(self, x):
-        return np.roll(x, shift=-self.shifts, axis=0)
+        return th.roll(x, shift=-self.shifts, dims=0)
 
 
 class LinOpReal(BaseLinOp):
@@ -122,7 +123,7 @@ class LinOpReal(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.real(x)
+        return x.real
 
     def applyT(self, x):
         return x
@@ -134,10 +135,9 @@ class LinOpImag(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.imag(x)
+        return x.imag
 
     def applyT(self, x):
-        # return np.zeros_like(x, dtype= np.complex128)
         return x
 
 
@@ -153,7 +153,9 @@ class LinOp_RealPartExpand(BaseLinOp):
         )
 
     def applyT(self, x):
-        return np.stack((self.LinOp.applyT(x).real, self.LinOp.applyT(x).imag), axis=-1)
+        return th.stack(
+            (self.LinOp.applyT(x).real, self.LinOp.applyT(x).imag), dim=-1
+        )
 
 
 ## 2D classes
@@ -176,10 +178,10 @@ class LinOpFFT2(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.fft.fft2(x, norm="ortho")
+        return th.fft.fft2(x, norm="ortho")
 
     def applyT(self, x):
-        return np.fft.ifft2(x, norm="ortho")
+        return th.fft.ifft2(x, norm="ortho")
 
 
 class LinOpIFFT2(BaseLinOp):
@@ -188,10 +190,10 @@ class LinOpIFFT2(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.fft.ifft2(x, norm="ortho")
+        return th.fft.ifft2(x, norm="ortho")
 
     def applyT(self, x):
-        return np.fft.fft2(x, norm="ortho")
+        return th.fft.fft2(x, norm="ortho")
 
 
 class LinOpId2(BaseLinOp):
@@ -212,10 +214,10 @@ class LinOpFlip2(BaseLinOp):
         self.out_shape = (-1,)
 
     def apply(self, x):
-        return np.flip(x)
+        return th.flip(x)
 
     def applyT(self, x):
-        return np.flip(x)
+        return th.flip(x)
 
 
 class LinOpRoll2(BaseLinOp):
@@ -226,10 +228,10 @@ class LinOpRoll2(BaseLinOp):
         self.h_shifts = int(h_shifts)
 
     def apply(self, x):
-        return np.roll(x, shift=(self.v_shifts, self.h_shifts), axis=(0, 1))
+        return th.roll(x, shifts=(self.v_shifts, self.h_shifts), dims=(0, 1))
 
     def applyT(self, x):
-        return np.roll(x, shift=(-self.v_shifts, -self.h_shifts), axis=(0, 1))
+        return th.roll(x, shifts=(-self.v_shifts, -self.h_shifts), dims=(0, 1))
 
 
 class LinOpCrop2(BaseLinOp):
@@ -243,7 +245,7 @@ class LinOpCrop2(BaseLinOp):
         v_size, h_size = x.shape
         v_start = int(v_size // 2 - (self.crop_shape[0] // 2))
         h_start = int(h_size // 2 - (self.crop_shape[1] // 2))
-        return x[
+        return x[:, :, 
             v_start : v_start + self.crop_shape[0],
             h_start : h_start + self.crop_shape[1],
         ]
@@ -254,52 +256,48 @@ class LinOpCrop2(BaseLinOp):
 
         if v_pad_size != 0:
             if self.in_shape[0] % 2 == 1:
-                x = np.pad(
+                x = th.nn.functional.pad(
                     x,
                     (
-                        (
-                            int(np.floor(v_pad_size / 2)),
-                            int(np.ceil(v_pad_size / 2)),
-                        ),
-                        (0, 0),
+                        int(np.floor(v_pad_size / 2)),
+                        int(np.ceil(v_pad_size / 2)),
+                        0,
+                        0,
                     ),
                     mode="constant",
                 )
             else:
-                x = np.pad(
+                x = th.nn.functional.pad(
                     x,
                     (
-                        (
-                            int(np.ceil(v_pad_size / 2)),
-                            int(np.floor(v_pad_size / 2)),
-                        ),
-                        (0, 0),
+                        int(np.ceil(v_pad_size / 2)),
+                        int(np.floor(v_pad_size / 2)),
+                        0,
+                        0,
                     ),
                     mode="constant",
                 )
 
         if h_pad_size != 0:
             if self.in_shape[1] % 2 == 1:
-                x = np.pad(
+                x = th.nn.functional.pad(
                     x,
                     (
-                        (0, 0),
-                        (
-                            int(np.floor(h_pad_size / 2)),
-                            int(np.ceil(h_pad_size / 2)),
-                        ),
+                        0,
+                        0,
+                        int(np.floor(h_pad_size / 2)),
+                        int(np.ceil(h_pad_size / 2)),
                     ),
                     mode="constant",
                 )
             else:
-                x = np.pad(
+                x = th.nn.functional.pad(
                     x,
                     (
-                        (0, 0),
-                        (
-                            int(np.ceil(h_pad_size / 2)),
-                            int(np.floor(h_pad_size / 2)),
-                        ),
+                        0,
+                        0,
+                        int(np.ceil(h_pad_size / 2)),
+                        int(np.floor(h_pad_size / 2)),
                     ),
                     mode="constant",
                 )
@@ -314,13 +312,13 @@ class LinOpRoll2_PadZero(BaseLinOp):
         self.h_shifts = int(h_shifts)
 
     def apply(self, x):
-        x = np.roll(x, self.h_shifts, axis=1)
+        x = th.roll(x, self.h_shifts, dims=1)
         if self.h_shifts < 0:
             x[:, self.h_shifts :] = 0
         elif self.h_shifts > 0:
             x[:, 0 : self.h_shifts] = 0
 
-        x = np.roll(x, self.v_shifts, axis=0)
+        x = th.roll(x, self.v_shifts, dims=0)
         if self.v_shifts < 0:
             x[self.v_shifts :, :] = 0
         elif self.v_shifts > 0:
@@ -328,13 +326,13 @@ class LinOpRoll2_PadZero(BaseLinOp):
         return x
 
     def applyT(self, x):
-        x = np.roll(x, -self.h_shifts, axis=1)
+        x = th.roll(x, -self.h_shifts, dims=1)
         if -self.h_shifts < 0:
             x[:, -self.h_shifts :] = 0
         elif -self.h_shifts > 0:
             x[:, 0 : -self.h_shifts] = 0
 
-        x = np.roll(x, -self.v_shifts, axis=0)
+        x = th.roll(x, -self.v_shifts, dims=0)
         if -self.v_shifts < 0:
             x[-self.v_shifts :, :] = 0
         elif -self.v_shifts > 0:
@@ -364,9 +362,7 @@ class StackLinOp(BaseLinOp):
         )
 
     def apply(self, x):
-        return np.concatenate(
-            tuple(linop.apply(x) for linop in self.LinOpList), axis=0
-        )
+        return th.cat(tuple(linop.apply(x) for linop in self.LinOpList), dim=0)
 
     def applyT(self, x):
         current_idx = 0
@@ -388,13 +384,13 @@ class StackLinOp(BaseLinOp):
 
 ## functions
 def shift_2d_replace(data, dx, dy, constant=False):
-    shifted_data = np.roll(data, dx, axis=1)
+    shifted_data = th.roll(data, dx, dims=1)
     if dx < 0:
         shifted_data[:, dx:] = constant
     elif dx > 0:
         shifted_data[:, 0:dx] = constant
 
-    shifted_data = np.roll(shifted_data, dy, axis=0)
+    shifted_data = th.roll(shifted_data, dy, dims=0)
     if dy < 0:
         shifted_data[dy:, :] = constant
     elif dy > 0:

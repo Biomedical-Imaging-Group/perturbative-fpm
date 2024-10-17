@@ -19,12 +19,12 @@ class loss_intensity_based(LossFunction):
     def compute_loss(
         self,
         y,
-        pr_model: pp.PhaseRetrievalBase,
+        pr_model: pp.FourierPtychography,
         x_est,
         compute_grad: bool = True,
     ):
-        y_est = pr_model.apply_ModularSquare(x_est)
-        loss = np.sum((y_est - y) ** 2)
+        y_est = pr_model.forward(x_est)
+        loss = ((y_est - y) ** 2).sum()
         if compute_grad:
             out_field = pr_model.apply(x_est)
             grad = -2 * pr_model.applyT(out_field * (y - y_est))
@@ -40,7 +40,7 @@ class loss_amplitude_based(LossFunction):
     def compute_loss(
         self,
         y,
-        pr_model: pp.PhaseRetrievalBase,
+        pr_model: pp.FourierPtychography,
         x_est,
         compute_grad: bool = True,
     ):
