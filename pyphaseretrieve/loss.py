@@ -1,6 +1,5 @@
-import numpy as np
+import torch as th
 from abc import abstractmethod
-import pyphaseretrieve.phaseretrieval as pp
 
 
 class LossFunction:
@@ -19,7 +18,7 @@ class loss_intensity_based(LossFunction):
     def compute_loss(
         self,
         y,
-        pr_model: pp.FourierPtychography,
+        pr_model,
         x_est,
         compute_grad: bool = True,
     ):
@@ -40,17 +39,17 @@ class loss_amplitude_based(LossFunction):
     def compute_loss(
         self,
         y,
-        pr_model: pp.FourierPtychography,
+        pr_model,
         x_est,
         compute_grad: bool = True,
     ):
-        y_est = pr_model.apply_ModularSquare(x_est)
-        loss = np.sum((np.sqrt(y_est) - np.sqrt(y)) ** 2)
+        y_est = pr_model.forward(x_est)
+        loss = th.sum((th.sqrt(y_est) - th.sqrt(y)) ** 2)
         if compute_grad:
             out_field = pr_model.apply(x_est)
             grad = pr_model.applyT(
                 out_field
-                - out_field / (np.sqrt(y_est) + self.epsilon) * np.sqrt(y)
+                - out_field / (th.sqrt(y_est) + self.epsilon) * th.sqrt(y)
             )
             return loss, grad
         else:

@@ -1,5 +1,3 @@
-import numpy as np
-from typing import Optional
 import torch as th
 import pyphaseretrieve.loss as pl
 import pyphaseretrieve.phaseretrieval as pp
@@ -9,8 +7,8 @@ import pyphaseretrieve.linop as plinop
 class GradientDescent:
     def __init__(
         self,
-        pr_model: pp.FourierPtychography,
-        loss_func: Optional[pl.LossFunction] = None,
+        pr_model,
+        loss_func: pl.LossFunction | None = None,
         line_search=None,
         acceleration=None,
     ):
@@ -25,19 +23,14 @@ class GradientDescent:
         self.acceleration = acceleration
 
         self.x_shape = pr_model.in_shape
-        self.current_iter = 0
         self.loss_list = []
 
     def iterate(self, y, initial_est=None, n_iter=100, lr=1, alpha=0):
-        if initial_est is not None:
-            x_est = th.copy(initial_est)
-        else:
-            x_est = th.ones(shape=self.x_shape, dtype=th.complex128)
+        x_est = initial_est.clone()
 
         for i_iter in range(n_iter):
             loss, grad = self.loss_func.compute_loss(y, self.pr_model, x_est)
             self.loss_list.append(loss)
-            self.current_iter += 1
 
             if self.acceleration is not None:
                 descent_direction = self.find_dir(x_est, y, grad)
@@ -82,7 +75,6 @@ class GradientDescent:
                 )
                 x_est += lr * (-grad)
                 current_idx += self.pr_model.probe_shape[0]
-            self.current_iter += 1
         return x_est
 
     def find_lr(
@@ -137,7 +129,7 @@ class GradientDescent:
 
 
 class SpectralMethod:
-    def __init__(self, pr_model: pp.FourierPtychography):
+    def __init__(self, pr_model):
         self.pr_model = pr_model
         self.x_shape = pr_model.in_shape
 
@@ -180,118 +172,68 @@ class SpectralMethod:
         return x_est
 
 
-class PerturbativePhase:
-    def __init__(
-        self,
-        pr_model: pp.FourierPtychography,
-        loss_func: Optional[pl.LossFunction] = None,
-    ):
-        """min {Y-|Ax|**2 - B*epsilon}"""
-        self.pr_model = pr_model
+def gradient_descent(
+    nabla_f,
+    x0,
+    n_iter,
+    tau,
+    callback=lambda x: None,
+):
+    x = x0.clone()
+    for _ in range(n_iter):
+        x -= tau * nabla_f(x)
+        callback(x)
+    return x
 
-        if loss_func is None:
-            self.loss_func = pl.loss_intensity_based()
-        else:
-            self.loss_func = loss_func
 
-        self.x_shape = pr_model.in_shape
-        self.current_iter = 0
-        self.loss_list = []
+def gauss_newton(
+    f,
+    x0,
+    n_iter,
+    solve,
+    callback=lambda x: None,
+):
+    x = x0.clone()
 
-    def iterate_GradientDescent(
-        self,
-        y,
-        initial_est=None,
-        n_iter=100,
-        linear_n_iter=20,
-        lr=1e-1,
-        alpha=0,
-    ):
-        if initial_est is not None:
-            x_est = th.copy(initial_est)
-        else:
-            x_est = th.ones(shape=self.x_shape, dtype=th.complex128)
+    for _ in range(n_iter):
+        J = f.jacobian(x)
+        r = f(x)
+        dx = solve(J.T @ J, J.T @ r)
+        x += dx
+        callback(x)
 
-        for i_iter in range(n_iter):
-            loss = self.loss_func.compute_loss(
-                y, self.pr_model, x_est, compute_grad=False
-            )
-            self.loss_list.append(loss)
-            self.current_iter += 1
-
-            perturbative_model, _ = self.pr_model.get_perturbative_model(
-                x_est, method="GradientDescent"
-            )
-
-            y_est = self.pr_model.forward(x_est)
-            epsilon = th.zeros_like(x_est)
-            for _ in range(linear_n_iter):
-                grad = -2 * perturbative_model.applyT(
-                    y - y_est - perturbative_model.apply(epsilon)
-                )
-                grad = grad + alpha * x_est
-                epsilon = epsilon - lr * grad
-            x_est += epsilon
-        return x_est
-
-    # TODO this is Gauss-Newton?
-    def iterate_ConjugateGradientDescent(
-        self,
-        y,
-        x0=None,
-        n_iter=100,
-        linear_n_iter=20,
-        tolerance=1e-9,
-        _lambda=0,
-    ):
-        x = x0.clone()
-
-        for i_iter in range(n_iter):
-            print(i_iter)
-            loss = self.loss_func.compute_loss(
-                y, self.pr_model, x, compute_grad=False
-            )
-            self.loss_list.append(loss)
-            self.current_iter += 1
-
-            y_est = self.pr_model.forward(x)
-            perturbative_model, _ = self.pr_model.jacobian(x)
-            A = perturbative_model.T() @ perturbative_model
-            epsilon = cg(
-                A,
-                perturbative_model.applyT(y - y_est),
-                x.new_zeros((*x.shape, 2)),
-                n_iter=linear_n_iter,
-                tol=tolerance,
-            )
-            x += epsilon[..., 0] + epsilon[..., 1] * 1j
-
-        return x
+    return x
 
 
 # TODO implement batched
-def cg(
-    A: plinop.BaseLinOp,
+def conjugate_gradient(
+    A: plinop.LinOp,
     b: th.Tensor,
     x0: th.Tensor,
     n_iter: int = 100,
     tol: float = 1e-9,
-    dim: tuple[int, ...] = (0, 1, 2),
+    dim: tuple[int, ...] = (1, 2, 3),
+    callback=lambda x: None,
 ):
+    def inner(a, b):
+        return (a * b).sum(dim=dim)
+
     x = x0.clone()
-    r = b - A.apply(x)
+    r = b - A @ x
     p = r
     for _ in range(n_iter):
-        Ap = A.apply(p)
-        alpha = (r.conj() * r).sum(axis=dim) / (p * Ap).sum()
+        Ap = A @ p
+        alpha = inner(r.conj(), r) / inner(p, Ap)
         x = x + alpha * p
         r_new = r - alpha * Ap
-        beta = (r_new.conj() * r_new).sum(axis=dim) / (r.conj() * r).sum(
-            axis=dim
-        )
+        beta = inner(r_new.conj(), r_new) / inner(r.conj(), r)
         p = r_new + beta * p
         r = r_new.clone()
-        if th.sqrt((r**2).sum(axis=dim)) < tol:
+        callback(x)
+
+        # TODO see above; adapt stopping criterion to batched
+        # dont re-implement the bug we had with mumy
+        if (th.sqrt((r**2).sum(dim=dim)) < tol).all():
             break
     return x
 
@@ -303,7 +245,6 @@ class GerchbergSaxton:
 
         self.x_shape = near_field_intensity.shape
         self.lost_list = []
-        self.current_iter = 0
 
     def iterate(self, initial_est=None, n_iter=100):
         if initial_est is not None:
@@ -327,6 +268,5 @@ class GerchbergSaxton:
                 (th.abs(_field_fourier_space) - self.amp_fourier_space) ** 2
             ) / th.sum((self.amp_fourier_space) ** 2)
             self.lost_list.append(lost)
-            self.current_iter += 1
 
         return field_real_space

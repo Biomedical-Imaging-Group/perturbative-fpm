@@ -1,36 +1,10 @@
-from abc import abstractmethod
 import torch as th
-from typing import Optional
 import numpy as np
 import pyphaseretrieve.linop as pl
 
 
-class FourierPtychography:
-    def __init__(self, linop: pl.BaseLinOp):
-        self.linop = linop
-
-    def forward(self, x: np.ndarray):
-        return (
-            np.abs(self.linop.apply(x) * (self.probe.shape[0] / x.shape[0]))
-            ** 2
-        )
-
-    def apply(self, x):
-        return self.linop.apply(x)
-
-    def applyT(self, x):
-        return self.linop.applyT(x)
-
-    @abstractmethod
-    def get_forward_model(self):
-        pass
-
-    def get_perturbative_model(self, x, method: str):
-        pass
-
-
-class Ptychography1d(FourierPtychography):
-    def __init__(self, probe, shifts: np.ndarray = None, n_img: int = 10):
+class Ptychography1d:
+    def __init__(self, probe: th.Tensor, shifts: th.Tensor | None = None, n_img: int = 10):
         self.probe = probe
         self.probe_shape = probe.shape
 
@@ -44,51 +18,28 @@ class Ptychography1d(FourierPtychography):
         self.linop = self.get_forward_model()
         self.in_shape = self.linop.in_shape
 
-    @abstractmethod
-    def get_auto_shifts(self) -> np.ndarray:
+    def get_auto_shifts(self) -> th.Tensor:
         probe_dia = np.count_nonzero(self.probe)
         start_shift = -(self.probe_shape[0] - probe_dia) // 2
         end_shift = (self.probe_shape[0] - probe_dia) // 2
         shifts = np.linspace(start_shift, end_shift, self.n_img)
         return shifts
 
-    def get_forward_model(self) -> pl.BaseLinOp:
-        op_fft = pl.LinOpFFT()
-        op_probe = pl.LinOpMul(self.probe)
-        linop = pl.StackLinOp(
+    def get_forward_model(self) -> pl.LinOp:
+        op_fft = pl.Fft()
+        op_probe = pl.Mul(self.probe)
+        linop = pl.Stack(
             [
-                op_fft @ op_probe @ pl.LinOpRoll(self.shifts[i_probe])
+                op_fft @ op_probe @ pl.Roll(self.shifts[i_probe])
                 for i_probe in range(self.n_img)
             ]
         )
         return linop
 
-    def get_perturbative_model(self, x_est, method: str):
-        if method == "GradientDescent":
-            return self.get_perturbative_GradientDescent_model(x_est=x_est)
-        elif method == "ConjugateGradientDescent":
-            return self.get_perturbative_ConjugateGradientDescent_model(
-                x_est=x_est
-            )
-
-    def get_perturbative_GradientDescent_model(self, x_est):
-        out_field = self.apply(x_est)
-        perturbative_model = (
-            2 * pl.LinOpReal() @ pl.LinOpMul(out_field.conj()) @ self.linop
-        )
-        return perturbative_model, None
-
-    def get_perturbative_ConjugateGradientDescent_model(self, x_est):
-        out_field = self.apply(x_est)
-        perturbative_model = pl.LinOp_RealPartExpand(
-            2 * pl.LinOpMul(out_field.conj()) @ self.linop
-        )
-        return perturbative_model, None
-
-    def get_probe_overlap_array(self) -> np.ndarray:
+    def get_probe_overlap_array(self) -> th.Tensor:
         overlap_img = np.zeros(shape=self.probe_shape)
         for i_probe in range(self.n_img):
-            roll_linop = pl.LinOpRoll(-self.shifts[i_probe])
+            roll_linop = pl.Roll(-self.shifts[i_probe])
             overlap_img = overlap_img + roll_linop.apply(self.probe)
         return overlap_img
 
@@ -99,47 +50,29 @@ class Ptychography1d(FourierPtychography):
         return overlap
 
 
-class FourierPtychography2d(FourierPtychography):
+class FourierPtychography2d:
     def __init__(
         self,
         probe,
-        shifts_pair: np.ndarray = None,
-        reconstruct_shape: Optional[int] = None,
+        shifts_pair: th.Tensor,
+        reconstruction_shape: tuple[int, int] | None = None,
         n_img: int = 25,
     ):
-        """shifts_pair is defined as [v_shifts,h_shifts]"""
         self.probe = probe
-        self.probe_shape = probe.shape
-
-        if reconstruct_shape is not None:
-            self.reconstruct_shape = reconstruct_shape
-        else:
-            self.reconstruct_shape = self.probe_shape
-
-        if shifts_pair is not None:
-            assert (
-                shifts_pair.ndim == 2
-            ), "shifts_map dimension should be (n,2)"
-            self.n_img = shifts_pair.shape[0]
-            self.shifts_pair = shifts_pair
-        else:
-            assert (
-                int(np.sqrt(n_img)) ** 2 == n_img
-            ), "n_img need to be perfect square"
-            self.n_img = n_img
-            self.shifts_pair = self.get_auto_shifts_pair()
+        self.reconstruction_shape = reconstruction_shape or self.probe.shape
+        self.n_img = shifts_pair.shape[0]
+        self.shifts = shifts_pair
 
         self.linop = self.get_forward_model()
         self.in_shape = self.linop.in_shape
 
-    @abstractmethod
-    def get_auto_shifts_pair(self) -> np.ndarray:
+    def get_auto_shifts_pair(self) -> th.Tensor:
         shift_probe = np.fft.fftshift(self.probe)
-        probe_center_row = shift_probe[int(self.probe_shape[0] // 2)]
+        probe_center_row = shift_probe[int(self.probe.shape[0] // 2)]
         probe_dia = np.count_nonzero(probe_center_row)
 
-        start_shift = -(self.reconstruct_shape[0] - probe_dia) // 2
-        end_shift = (self.reconstruct_shape[0] - probe_dia) // 2
+        start_shift = -(self.reconstruction_shape[0] - probe_dia) // 2
+        end_shift = (self.reconstruction_shape[0] - probe_dia) // 2
         side_n_img = int(np.sqrt(self.n_img))
         shifts = np.linspace(start_shift, end_shift, side_n_img).astype(int)
         shifts_h, shifts_v = np.meshgrid(shifts, shifts)
@@ -149,58 +82,43 @@ class FourierPtychography2d(FourierPtychography):
         )
         return shifts_pair
 
-    def get_forward_model(self) -> pl.BaseLinOp:
-        op_ifft2 = pl.LinOpIFFT2()
-        op_fftshift = pl.LinOpFFTSHIFT()
-        op_ifftshift = pl.LinOpIFFTSHIFT()
-        op_fcrop = pl.LinOpCrop2(
-            in_shape=self.reconstruct_shape, crop_shape=self.probe_shape
-        )
-        op_probe = pl.LinOpMul(self.probe)
-        linop = pl.StackLinOp(
+    # TODO the parallelism is extremely suboptimal here as it is essentially
+    # the same code as the multiplexed one which parallelizes over the LEDs
+    # Here, each forward only has one LED, so we are in the worst case..
+    def get_forward_model(self) -> pl.LinOp:
+        return pl.Stack(
             [
-                op_ifft2
-                @ op_probe
-                @ op_ifftshift
-                @ op_fcrop
-                @ op_fftshift
-                @ pl.LinOpRoll2(
-                    self.shifts_pair[i_probe, 0], self.shifts_pair[i_probe, 1]
+                pl.Ifft2()
+                @ pl.Mul(self.probe)
+                @ pl.Ifftshift()
+                @ pl.Crop2(
+                    in_shape=self.reconstruction_shape,
+                    crop_shape=self.probe.shape[2:],
                 )
+                @ pl.Fftshift()
+                @ pl.Roll2(self.shifts[i_probe])
                 for i_probe in range(self.n_img)
             ]
         )
-        return linop
 
-    def get_perturbative_model(self, x_est, method: str):
-        if method == "GradientDescent":
-            return self.get_perturbative_GradientDescent_model(x_est=x_est)
-        elif method == "ConjugateGradientDescent":
-            return self.get_perturbative_ConjugateGradientDescent_model(
-                x_est=x_est
-            )
-
-    def get_perturbative_GradientDescent_model(self, x_est):
-        out_field = self.apply(x_est)
-        perturbative_model = (
-            2 * pl.LinOpReal() @ pl.LinOpMul(out_field.conj()) @ self.linop
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        return (
+            th.abs((self.linop @ x) * (self.probe.shape[0] / x.shape[0])) ** 2
         )
-        return perturbative_model, None
 
-    def get_perturbative_ConjugateGradientDescent_model(self, x_est):
-        out_field = self.apply(x_est)
-        perturbative_model = pl.LinOp_RealPartExpand(
-            2 * pl.LinOpMul(out_field.conj()) @ self.linop
-        )
-        return perturbative_model, None
+    def apply(self, x):
+        return self.linop.apply(x)
+
+    def applyT(self, x):
+        return self.linop.applyT(x)
 
     def get_overlap_rate(self) -> float:
         """self-defined shifts_pair might cause error"""
         shift_probe = np.fft.fftshift(self.probe)
-        probe_center_row = shift_probe[int(self.probe_shape[0] // 2)]
+        probe_center_row = shift_probe[int(self.probe.shape[0] // 2)]
         probe_dia = np.count_nonzero(probe_center_row)
         probe_radius = probe_dia // 2
-        step_size = np.abs(self.shifts_pair[0][1] - self.shifts_pair[1][1])
+        step_size = th.abs(self.shifts_pair[0][1] - self.shifts_pair[1][1])
         if step_size > (probe_radius * 2):
             return 0
         else:
@@ -218,8 +136,8 @@ class FourierPtychography2d(FourierPtychography):
             )
             return overlap_rate
 
-    def get_probe_overlap_map(self) -> np.ndarray:
-        pad_size = self.reconstruct_shape[0] - self.probe_shape[0]
+    def get_probe_overlap_map(self) -> th.Tensor:
+        pad_size = self.reconstruction_shape[0] - self.probe.shape[0]
         shift_probe = np.fft.fftshift(self.probe)
         shift_probe = np.pad(
             shift_probe,
@@ -229,29 +147,29 @@ class FourierPtychography2d(FourierPtychography):
 
         overlap_img = np.zeros_like(shift_probe)
         for i_probe in range(self.n_img):
-            roll_linop = pl.LinOpRoll2(
+            roll_linop = pl.Roll2(
                 -self.shifts_pair[i_probe, 0], -self.shifts_pair[i_probe, 1]
             )
             overlap_img = overlap_img + roll_linop.apply(shift_probe)
         return overlap_img
 
 
-class XRay_Ptychography2d(FourierPtychography):
+class XRay_Ptychography2d:
     def __init__(
         self,
         probe,
-        shifts_pair: np.ndarray = None,
-        reconstruct_shape: Optional[tuple] = None,
+        shifts_pair: th.Tensor | None = None,
+        reconstruction_shape: tuple[int, int] | None = None,
         n_img: int = 25,
     ):
         """shifts_pair is defined as [v_shifts,h_shifts]"""
         self.probe = probe
         self.probe_shape = probe.shape
 
-        if reconstruct_shape is not None:
-            self.reconstruct_shape = reconstruct_shape
+        if reconstruction_shape is not None:
+            self.reconstruction_shape = reconstruction_shape
         else:
-            self.reconstruct_shape = self.probe_shape
+            self.reconstruction_shape = self.probe_shape
 
         if shifts_pair is not None:
             assert (
@@ -269,14 +187,13 @@ class XRay_Ptychography2d(FourierPtychography):
         self.linop = self.get_forward_model()
         self.in_shape = self.linop.in_shape
 
-    @abstractmethod
-    def get_auto_shifts_pair(self) -> np.ndarray:
+    def get_auto_shifts_pair(self) -> th.Tensor:
         shift_probe = np.fft.fftshift(self.probe)
         probe_center_row = shift_probe[int(self.probe_shape[0] // 2)]
         probe_dia = np.count_nonzero(probe_center_row)
 
-        start_shift = -(self.reconstruct_shape[0] - probe_dia) // 2
-        end_shift = (self.reconstruct_shape[0] - probe_dia) // 2
+        start_shift = -(self.reconstruction_shape[0] - probe_dia) // 2
+        end_shift = (self.reconstruction_shape[0] - probe_dia) // 2
         side_n_img = int(np.sqrt(self.n_img))
         shifts = np.linspace(start_shift, end_shift, side_n_img).astype(int)
         shifts_h, shifts_v = np.meshgrid(shifts, shifts)
@@ -286,20 +203,20 @@ class XRay_Ptychography2d(FourierPtychography):
         )
         return shifts_pair
 
-    def get_forward_model(self) -> pl.BaseLinOp:
-        op_fft2 = pl.LinOpFFT2()
-        op_ifftshift = pl.LinOpIFFTSHIFT()
-        op_fcrop = pl.LinOpCrop2(
-            in_shape=self.reconstruct_shape, crop_shape=self.probe_shape
+    def get_forward_model(self) -> pl.LinOp:
+        op_fft2 = pl.Fft2()
+        op_ifftshift = pl.Ifftshift()
+        op_fcrop = pl.Crop2(
+            in_shape=self.reconstruction_shape, crop_shape=self.probe_shape
         )
-        op_probe = pl.LinOpMul(self.probe)
-        linop = pl.StackLinOp(
+        op_probe = pl.Mul(self.probe)
+        linop = pl.Stack(
             [
                 op_ifftshift
                 @ op_fft2
                 @ op_probe
                 @ op_fcrop
-                @ pl.LinOpRoll2_PadZero(
+                @ pl.Roll2_PadZero(
                     self.shifts_pair[i_probe, 0], self.shifts_pair[i_probe, 1]
                 )
                 for i_probe in range(self.n_img)
@@ -308,126 +225,66 @@ class XRay_Ptychography2d(FourierPtychography):
         return linop
 
     def get_linop_list(self):
-        return self.linop.LinOpList
+        return self.linop.List
 
-    def get_perturbative_model(self, x_est, method: str):
-        if method == "GradientDescent":
-            return self.get_perturbative_GradientDescent_model(x_est=x_est)
-        elif method == "ConjugateGradientDescent":
-            return self.get_perturbative_ConjugateGradientDescent_model(
-                x_est=x_est
-            )
-
-    def get_perturbative_GradientDescent_model(self, x_est):
-        out_field = self.apply(x_est)
-        perturbative_model = (
-            2 * pl.LinOpReal() @ pl.LinOpMul(out_field.conj()) @ self.linop
-        )
-        return perturbative_model, None
-
-    def get_perturbative_ConjugateGradientDescent_model(self, x_est):
-        out_field = self.apply(x_est)
-        perturbative_model = pl.LinOp_RealPartExpand(
-            2 * pl.LinOpMul(out_field.conj()) @ self.linop
-        )
-        return perturbative_model, None
-
-    def get_probe_overlap_map(self) -> np.ndarray:
-        op_fcrop = pl.LinOpCrop2(
-            in_shape=self.reconstruct_shape, crop_shape=self.probe_shape
+    def get_probe_overlap_map(self) -> th.Tensor:
+        op_fcrop = pl.Crop2(
+            in_shape=self.reconstruction_shape, crop_shape=self.probe_shape
         )
         shift_probe = op_fcrop.applyT(self.probe)
 
         overlap_img = np.zeros_like(shift_probe)
         for i_probe in range(self.n_img):
-            roll_linop = pl.LinOpRoll2_PadZero(
+            roll_linop = pl.Roll2_PadZero(
                 -self.shifts_pair[i_probe, 0], -self.shifts_pair[i_probe, 1]
             )
             overlap_img = overlap_img + roll_linop.apply(shift_probe)
         return overlap_img
 
 
-class MultiplexedFourierPtychography(FourierPtychography):
+class MultiplexedFourierPtychography:
     def __init__(
         self,
         probe,
-        multiplex_led_mask: th.Tensor,
         all_shifts: list[th.Tensor],
-        reconstruct_shape: tuple[int],
+        reconstruction_shape: tuple[int, int],
     ):
         self.probe = probe
-        self.multiplex_led_mask = multiplex_led_mask
         self.all_shifts = all_shifts
-        self.crop = pl.LinOpCrop2(
-            in_shape=reconstruct_shape, crop_shape=reconstruct_shape
+        self.n_leds = [shifts.shape[0] for shifts in all_shifts]
+        self.reconstruction_shape = reconstruction_shape
+        self.forwards = [
+            pl.Ifft2()
+            @ pl.Mul(self.probe)
+            @ pl.Ifftshift()
+            @ pl.Crop2(
+                in_shape=reconstruction_shape, crop_shape=self.probe.shape[2:]
+            )
+            @ pl.Fftshift()
+            @ pl.Roll2(shifts)
+            for shifts in all_shifts
+        ]
+
+    def forward(self, x: th.Tensor):
+        y = th.empty(
+            (x.shape[0], len(self.all_shifts), *self.probe.shape[2:]),
+            device=x.device,
         )
-
-    def forward(self, x):
-        y = th.empty((x.shape[0], len(self.all_shifts), *x.shape[2:]))
-        for i, shifts in enumerate(self.all_shifts):
-            n, _, h, w = x.shape
-            c = shifts.shape[0]
-            expanded = x.expand(-1, c, -1, -1)
-            # https://discuss.pytorch.org/t/tensor-shifts-in-torch-roll/170655/2
-            # This is still not really optimal, lots of stuff done for nothing
-            ind0 = th.arange(n)[:, None, None, None].expand(n, c, h, w)
-            ind1 = th.arange(c)[None, :, None, None].expand(n, c, h, w)
-            ind2 = th.arange(h)[None, None, :, None].expand(n, c, h, w)
-            ind3 = th.arange(w)[None, None, None, :].expand(n, c, h, w)
-
-            rolled = expanded[
-                ind0,
-                ind1,
-                (ind2 + shifts[:, 0, None, None, None]) % h,
-                (ind3 + shifts[:, 1, None, None, None]) % w,
-            ]
-            fftshifted = th.fft.fftshift(rolled, dim=(-2, -1))
-            cropped = self.crop(fftshifted)
-            ifftshifted = th.fft.ifftshift(cropped, dim=(-2, -1))
-            multiplied = self.probe[None, None] * ifftshifted
-            iffted = th.fft.ifft2(multiplied, norm="ortho")
-            y[:, i] = (th.abs(iffted) ** 2).sum(1)
+        for i, forward in enumerate(self.forwards):
+            y[:, i] = (th.abs(forward @ x) ** 2).sum(1)
 
         return y
 
-    def apply(self, x):
-        raise NameError("No apply method in MultiplexedPhaseRetrieval")
+    def jacobian(self, x: th.Tensor):
+        return pl.Stack([
+            pl.SumReduce(1, n_leds)
+            @ pl.RealPartExpand(2 * pl.Mul((forward @ x).conj()) @ forward)
+            # TODO better name; this is not the forward in class scope!
+            for forward, n_leds in zip(self.forwards, self.n_leds)
+        ])
 
-    def applyT(self, x):
-        raise NameError("No applyT method in MultiplexedPhaseRetrieval")
-
-    def jacobian(self, x_est):
-        perturbative_model_list = []
-        for _, i_mask in enumerate(self.multiplex_led_mask):
-            _perturbative_model = None
-            for idx, mask_item in enumerate(i_mask):
-                if mask_item:
-                    _out_field = self.linops[idx].apply(x_est)
-                    if _perturbative_model is None:
-                        _perturbative_model = (
-                            pl.LinOp_RealPartExpand(
-                                2
-                                * pl.LinOpMul(_out_field.conj())
-                                @ self.linops[idx]
-                            )
-                            * mask_item
-                        )
-                    else:
-                        _perturbative_model += (
-                            pl.LinOp_RealPartExpand(
-                                2
-                                * pl.LinOpMul(_out_field.conj())
-                                @ self.linops[idx]
-                            )
-                            * mask_item
-                        )
-            perturbative_model_list.append(_perturbative_model)
-        perturbative_model = pl.StackLinOp(perturbative_model_list)
-
-        return perturbative_model
-
-    def get_probe_overlap_map(self) -> np.ndarray:
-        pad_size = self.reconstruct_shape[0] - self.probe_shape[0]
+    def get_probe_overlap_map(self) -> th.Tensor:
+        pad_size = self.reconstruction_shape[0] - self.probe.shape[0]
         shift_probe = np.fft.fftshift(self.probe)
         shift_probe = np.pad(
             shift_probe,
@@ -439,8 +296,8 @@ class MultiplexedFourierPtychography(FourierPtychography):
         for _, i_mask in enumerate(self.multiplex_led_mask):
             for idx, mask_item in enumerate(i_mask):
                 if mask_item >= 1:
-                    roll_linop = pl.LinOpRoll2(
+                    roll_linop = pl.Roll2(
                         -self.shifts_pair[idx, 0], -self.shifts_pair[idx, 1]
                     )
-                    overlap_img = overlap_img + roll_linop.apply(shift_probe)
+                    overlap_img = overlap_img + roll_linop @ shift_probe
         return overlap_img

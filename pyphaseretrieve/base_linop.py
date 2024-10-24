@@ -2,7 +2,7 @@ from abc import abstractmethod
 
 
 ## Base class
-class BaseLinOp:
+class LinOp:
     def __init__(self):
         self.in_shape: tuple
         self.out_shape: tuple
@@ -16,68 +16,67 @@ class BaseLinOp:
         pass
 
     def __add__(self, other):
-        if isinstance(other, BaseLinOp):
-            return LinOpSum(self, other)
+        if isinstance(other, LinOp):
+            return Sum(self, other)
         else:
             raise NameError(
                 "Summing scalar and LinOp objects does not result in a linear operator."
             )
 
     def __radd__(self, other):
-        if isinstance(other, BaseLinOp):
-            return LinOpSum(self, other)
+        if isinstance(other, LinOp):
+            return Sum(self, other)
         else:
             raise NameError(
                 "Summing scalar and LinOp objects does not result in a linear operator."
             )
 
     def __sub__(self, other):
-        if isinstance(other, BaseLinOp):
-            return LinOpDiff(self, other)
+        if isinstance(other, LinOp):
+            return Diff(self, other)
         else:
             raise NameError(
                 "Subtracting scalar and LinOp objects does not result in a linear operator."
             )
 
     def __rsub__(self, other):
-        if isinstance(other, BaseLinOp):
-            return LinOpDiff(self, other)
+        if isinstance(other, LinOp):
+            return Diff(self, other)
         else:
             raise NameError(
                 "Subtracting scalar and LinOp objects does not result in a linear operator."
             )
 
     def __mul__(self, other):
-        if isinstance(other, BaseLinOp):
+        if isinstance(other, LinOp):
             raise NameError(
                 "Multiplying two LinOp objects does not result in a linear operator."
             )
         else:
-            return LinOpScalarMul(self, other)
+            return ScalarMul(self, other)
 
     def __rmul__(self, other):
-        if isinstance(other, BaseLinOp):
+        if isinstance(other, LinOp):
             raise NameError(
                 "Multiplying two LinOp objects does not result in a linear operator."
             )
         else:
-            return LinOpScalarMul(self, other)
+            return ScalarMul(self, other)
 
     def __matmul__(self, other):
-        if isinstance(other, BaseLinOp):
-            return LinOpComposition(self, other)
+        if isinstance(other, LinOp):
+            return Composition(self, other)
         else:
-            raise NameError(
-                "The matrix multiplication operator can only be performed between two LinOp objects."
-            )
+            return self.apply(other)
 
+    @property
     def T(self):
-        return LinOpTranspose(self)
+        return Transpose(self)
 
 
 ## Utils classes
-class LinOpComposition(BaseLinOp):
-    def __init__(self, LinOp1: BaseLinOp, LinOp2: BaseLinOp):
+class Composition(LinOp):
+    def __init__(self, LinOp1: LinOp, LinOp2: LinOp):
         self.LinOp1 = LinOp1
         self.LinOp2 = LinOp2
         self.in_shape = (
@@ -94,8 +93,8 @@ class LinOpComposition(BaseLinOp):
         return self.LinOp2.applyT(self.LinOp1.applyT(x))
 
 
-class LinOpSum(BaseLinOp):
-    def __init__(self, LinOp1: BaseLinOp, LinOp2: BaseLinOp):
+class Sum(LinOp):
+    def __init__(self, LinOp1: LinOp, LinOp2: LinOp):
         self.LinOp1 = LinOp1
         self.LinOp2 = LinOp2
         self.in_shape = (
@@ -116,8 +115,8 @@ class LinOpSum(BaseLinOp):
         return self.LinOp2.applyT(x) + self.LinOp1.applyT(x)
 
 
-class LinOpDiff(BaseLinOp):
-    def __init__(self, LinOp1: BaseLinOp, LinOp2: BaseLinOp):
+class Diff(LinOp):
+    def __init__(self, LinOp1: LinOp, LinOp2: LinOp):
         self.LinOp1 = LinOp1
         self.LinOp2 = LinOp2
         self.in_shape = (
@@ -138,8 +137,8 @@ class LinOpDiff(BaseLinOp):
         return self.LinOp1.applyT(x) - self.LinOp2.applyT(x)
 
 
-class LinOpScalarMul(BaseLinOp):
-    def __init__(self, LinOp: BaseLinOp, other):
+class ScalarMul(LinOp):
+    def __init__(self, LinOp: LinOp, other):
         self.LinOp = LinOp
         self.scalar = other
         self.in_shape = LinOp.in_shape
@@ -152,8 +151,8 @@ class LinOpScalarMul(BaseLinOp):
         return self.LinOp.applyT(x) * self.scalar
 
 
-class LinOpTranspose(BaseLinOp):
-    def __init__(self, LinOpT: BaseLinOp):
+class Transpose(LinOp):
+    def __init__(self, LinOpT: LinOp):
         self.LinOpT = LinOpT
         self.in_shape = LinOpT.out_shape
         self.out_shape = LinOpT.in_shape
