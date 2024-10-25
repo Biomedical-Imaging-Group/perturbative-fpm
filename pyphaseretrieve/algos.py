@@ -22,7 +22,7 @@ class GradientDescent:
         self.line_search = line_search
         self.acceleration = acceleration
 
-        self.x_shape = pr_model.in_shape
+        self.x_shape = pr_model.reconstruction_shape
         self.loss_list = []
 
     def iterate(self, y, initial_est=None, n_iter=100, lr=1, alpha=0):
@@ -96,7 +96,7 @@ class GradientDescent:
             )
         while True:
             new_x_est = x_est + lr * descent_direction
-            new_y_est = th.abs(self.pr_model.apply(new_x_est)) ** 2
+            new_y_est = th.abs(self.pr_model.forward(new_x_est)) ** 2
             new_loss = th.sum((new_y_est - y) ** 2)
             if new_loss <= initial_loss + lr * c * m:
                 break
