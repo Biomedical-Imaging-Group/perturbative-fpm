@@ -67,67 +67,40 @@ class Microscope:
             )
         )
 
-# TODO merge with class below, let user choose implementation (i guess)
-class MultiplexedFourierPtychographyPhaseShift:
-    def __init__(self, microsope: Microscope, indices: list[th.Tensor], shape: tuple[int, int]):
+
+class MultiplexedFourierPtychography:
+    def __init__(
+        self,
+        microsope: Microscope,
+        indices: list[th.Tensor],
+        shape: tuple[int, int],
+        exact_phase: bool = True,
+    ):
         self.probe = microsope.pupil_mask[None, None]
-        self.all_angles = [
-            microsope.led_angles[index.to(th.int64)] for index in indices
+        self.n_leds = [len(index) for index in indices]
+        self.n_patterns = len(indices)
+
+        phase_shift_ffts = [
+            pl.Fft2() @ pl.PhaseShift(microsope.shifts[index], shape)
+            for index in indices
+        ] if exact_phase else [
+            pl.Roll2(th.round(microsope.shifts[index]).to(th.int64)) @ pl.Fft2()
+            for index in indices
         ]
-        self.all_shifts = [
-            microsope.shifts[index.to(th.int64)] for index in indices]
-        self.n_leds = [angle.shape[0] for angle in self.all_angles]
+
         self.forwards = [
             pl.Ifft2()
             @ pl.Mul(self.probe)
             @ pl.Ifftshift()
             @ pl.Crop2(in_shape=shape, crop_shape=self.probe.shape[2:])
             @ pl.Fftshift()
-            @ pl.Fft2()
-            @ pl.PhaseShift(angles, shape)
-            for angles in self.all_shifts  # TODO
+            @ ps_fft
+            for ps_fft in phase_shift_ffts
         ]
 
     def forward(self, x: th.Tensor):
         y = th.empty(
-            (x.shape[0], len(self.all_angles), *self.probe.shape[2:]),
-            device=x.device,
-        )
-        for i, forward_ in enumerate(self.forwards):
-            y[:, i] = (th.abs(forward_ @ x) ** 2).sum(1)
-
-        return y
-
-    def jacobian(self, x: th.Tensor):
-        return pl.Stack([
-            pl.SumReduce(1, n_leds)
-            @ pl.RealPartExpand() @ pl.Mul(2 * (forward @ x).conj()) @ forward
-            for forward, n_leds in zip(self.forwards, self.n_leds)
-        ])
-
-
-class MultiplexedFourierPtychography:
-    def __init__(self, microsope: Microscope, indices: list[th.Tensor], shape: tuple[int, int]):
-        self.probe = microsope.pupil_mask[None, None]
-        self.all_shifts = [
-            th.round(microsope.shifts[index.to(th.int64)]) for index in indices]
-        self.n_leds = [shifts.shape[0] for shifts in self.all_shifts]
-        self.forwards = [
-            pl.Ifft2()
-            @ pl.Mul(self.probe)
-            @ pl.Ifftshift()
-            @ pl.Crop2(
-                in_shape=shape, crop_shape=self.probe.shape[2:]
-            )
-            @ pl.Fftshift()
-            @ pl.Roll2(shifts)
-            @ pl.Fft2()
-            for shifts in self.all_shifts
-        ]
-
-    def forward(self, x: th.Tensor):
-        y = th.empty(
-            (x.shape[0], len(self.all_shifts), *self.probe.shape[2:]),
+            (x.shape[0], self.n_patterns, *self.probe.shape[2:]),
             device=x.device,
         )
         for i, forward_ in enumerate(self.forwards):
