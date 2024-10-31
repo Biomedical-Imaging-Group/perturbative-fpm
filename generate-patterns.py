@@ -51,7 +51,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 2 bis (DPC phase 1 bis)
+# Pattern 4 bis (DPC phase 1 bis)
 low_na = 0
 high_na = 0.25
 low_angle = -180
@@ -65,7 +65,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 3 bis (DPC phase 3 bis)
+# Pattern 5 bis (DPC phase 3 bis)  TODO phase 2?
 low_na = 0
 high_na = 0.25
 low_angle = -90
@@ -79,7 +79,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 4 (first ring of dark field)
+# Pattern 6 (first ring of dark field)
 low_na = 0.25
 high_na = 0.25 * 1.3
 low_angle = -180
@@ -93,7 +93,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 5 (same as 4 but removing a few LEDs for edge effect)
+# Pattern 7 (same as 4 but removing a few LEDs for edge effect)
 low_na = 0.26
 high_na = 0.25 * 1.3
 low_angle = -180
@@ -107,7 +107,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 6 (second ring of dark field)
+# Pattern 8 (second ring of dark field)
 low_na = 0.25 * 1.3
 high_na = 0.25 * 1.7
 low_angle = -180
@@ -121,7 +121,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 7 (third ring of dark field)
+# Pattern 9 (third ring of dark field)
 low_na = 0.25 * 1.7
 high_na = 0.25 * 2
 low_angle = -180
@@ -135,7 +135,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 8 (DF-PPR with fewer images = larger rings)
+# Pattern 10 (DF-PPR with fewer images = larger rings)
 low_na = 0.26
 high_na = 0.25 * 1.5
 low_angle = -180
@@ -149,7 +149,7 @@ for led_nbr in data:
         curr_patt.append(int(led_nbr))
 total_patterns.append(curr_patt)
 
-# Pattern 9 (DF-PPR with fewer images = larger rings)
+# Pattern 11 (DF-PPR with fewer images = larger rings)
 low_na = 0.25 * 1.5
 high_na = 0.25 * 2
 low_angle = -180
