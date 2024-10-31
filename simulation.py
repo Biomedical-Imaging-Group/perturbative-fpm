@@ -5,31 +5,37 @@ from pyphaseretrieve.phaseretrieval import Microscope
 import skimage
 import torch as th
 import pyphaseretrieve.linop as pl
-from pyphaseretrieve import algos, loss, phaseretrieval
+from pyphaseretrieve import algos, phaseretrieval
 
 
 def DPC(image, indices: list[th.Tensor], alpha=0):
     # TODO figure out physics and what this is, adapt call signature to what
     # makes sense
     model = phaseretrieval.MultiplexedFourierPtychography(
-        microscope, indices,
+        microscope, indices, image.shape[2:]
     )
-    y = model.forward(pl.Fft2() @ image)
+    shape = image.shape[2:]
+
+    # TODO put this factor in the algorithm
+    # arises due to normalization of the ffts/iffts of different size
+    y = model.forward(image / 2.56)
 
     crop = pl.Crop2(
-        in_shape=model.reconstruction_shape,
+        in_shape=shape,
         crop_shape=(camera_size, camera_size),
     )
 
-    numerator = th.zeros(model.probe.shape, dtype=th.complex64, device=device)
-    denom = th.zeros(model.probe.shape, dtype=th.float32, device=device)
+    numerator = th.zeros(shape, dtype=th.complex64, device=device)[None, None]
+    denom = th.zeros(shape, dtype=th.float32, device=device)[None, None]
     probe_ = model.probe.to(th.int32)
+    pad = (shape[0] - probe_.shape[2]) // 2
+    probe_ = th.fft.fftshift(th.nn.functional.pad(th.fft.ifftshift(probe_[0, 0]), (pad, pad, pad, pad)))[None, None]
 
     for i_m, shifts in enumerate(model.all_shifts):
         hm = (pl.Roll2(-shifts) @ probe_ - pl.Roll2(shifts) @ probe_).sum(
             1, keepdim=True
         )
-        numerator += ((hm * 1j).conj() * pl.Ifftshift() @ crop
+        numerator += ((hm * 1j).conj() * pl.Ifftshift() @ crop.T
                       @ pl.Fftshift() @ pl.Fft2() @ y[:, i_m:i_m + 1])
         denom += th.abs(hm) ** 2
 
@@ -38,10 +44,11 @@ def DPC(image, indices: list[th.Tensor], alpha=0):
 
 # TODO alpha and lamda are unused atm
 def PPR(image, indices, n_iter=1, linear_n_iter=1, alpha=0, lamda=0):
+    shape = image.shape[2:]
     model = phaseretrieval.MultiplexedFourierPtychography(
-        microscope, indices,
+        microscope, indices, shape
     )
-    y = model.forward(pl.Fft2() @ image)
+    y = model.forward(image)
 
     # TODO we need to discuss how to properly separate all of this stuff
     # probably have a `residual` function in the model that takes the data as
@@ -53,45 +60,43 @@ def PPR(image, indices, n_iter=1, linear_n_iter=1, alpha=0, lamda=0):
     f.jacobian = model.jacobian
 
     # TODO we could warm start CG with the previous solution if needed
-    def solve(A, b):
-        return th.view_as_complex(
-            algos.conjugate_gradient(
-                A,
-                b,
-                th.zeros_like(A.T @ b),
-                n_iter=linear_n_iter,
-                dim=(1, 2, 3, 4),
-            )
+    def solve(A, b, x0):
+        return algos.conjugate_gradient(
+            A,
+            b,
+            th.zeros_like(x0),
+            n_iter=linear_n_iter,
+            dim=(1, 2, 3),
         )
 
     # TODO remove hardcoded 1, 1
-    x0 = pl.Fft2() @ th.ones(
-        (1, 1, *model.reconstruction_shape), dtype=th.complex64, device=device)
+    x0 = th.ones(
+        (1, 1, *shape), dtype=th.complex64, device=device)
     start = time.time()
     x_est = algos.gauss_newton(f=f, x0=x0, n_iter=n_iter, solve=solve)
     print(f"PPR time: {time.time() - start}")
-    return pl.Ifft2() @ x_est
+    return x_est
 
 
+# TODO (taken from the phaseretrieval class) the parallelism is extremely
+# suboptimal here as it is essentially
+# the same code as the multiplexed one which parallelizes over the LEDs
+# Here, each forward only has one LED, so we are in the worst case..
 def FPM(image, indices: list[th.Tensor], n_iter=5, lr=1):
+    shape = image.shape[2:]
     model = phaseretrieval.MultiplexedFourierPtychography(
-        microscope, indices,
+        microscope, indices, shape
     )
-    y = model.forward(pl.Fft2() @ image)
+    y = model.forward(image)
 
-    initial_est = th.ones(
-        (1, 1, *model.reconstruction_shape), dtype=th.complex64, device=device
-    )
-    initial_est = pl.Fft2() @ initial_est
 
-    loss_function = loss.loss_amplitude_based(epsilon=1e-4)
-    gd_method = algos.GradientDescent(
-        model, loss_func=loss_function, line_search=None
-    )
-    x_est = gd_method.iterate(
-        y=y, initial_est=initial_est, n_iter=n_iter, lr=lr
-    )
-    return pl.Ifft2() @ x_est
+    x0 = th.ones((1, 1, *shape), dtype=th.complex64, device=device)
+
+    def nabla(x):
+        print(((model.forward(x) - y) ** 2).sum())
+        return model.jacobian(x).T @ (model.forward(x) - y)
+
+    return algos.gradient_descent(nabla, lr, x0, n_iter)
 
 
 def led_indices_by_angles(positions: th.Tensor, angle_ranges: th.Tensor) -> list[th.Tensor]:
@@ -184,6 +189,7 @@ if __name__ == "__main__":
     x_est = DPC(image, dpc_indices, alpha=0.1)
     plt.figure()
     plt.imshow(x_est.real.cpu().numpy()[0, 0])
+    plt.colorbar()
 
     # TODO this angle business needs to be cleaned
     # with the following, i can reproduce the patterns from the student
@@ -194,9 +200,10 @@ if __name__ == "__main__":
         led_positions, angle_ranges=angle_ranges)
     bf_ppr_indices = [th.Tensor(list(set(angle_ind) & set(bf_indices)))
                       for angle_ind in angle_indices]
-    x_est = PPR(image, bf_ppr_indices, n_iter=2, linear_n_iter=2)
+    x_est_bf = PPR(image, bf_ppr_indices, n_iter=2, linear_n_iter=10)
     plt.figure()
-    plt.imshow(th.angle(x_est).cpu().numpy()[0, 0])
+    plt.imshow(th.angle(x_est_bf).cpu().numpy()[0, 0])
+    plt.colorbar()
 
     radii_ranges = [
         th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1., 1.5), (1.5, 2.)]
@@ -206,17 +213,19 @@ if __name__ == "__main__":
         led_positions, radii_ranges=radii_ranges)
     df_ppr_indices = [th.Tensor(ind) for ind in df_ppr_indices]
     ppr_indices = bf_ppr_indices + df_ppr_indices
-    x_est = PPR(image, ppr_indices, n_iter=1, linear_n_iter=1)
+    x_est_df = PPR(image, ppr_indices, n_iter=2, linear_n_iter=10)
     plt.figure()
-    plt.imshow(th.angle(x_est).cpu().numpy()[0, 0])
+    plt.imshow(th.angle(x_est_df).cpu().numpy()[0, 0])
+    plt.colorbar()
 
     print("FPM Start \n----------------------")
     fpm_radius = 2.5 * na
     fpm_indices = led_indices_by_radii(led_positions, [th.Tensor([0, fpm_radius])])
     fpm_indices = [th.Tensor([index]) for index in fpm_indices[0]]
-    print(fpm_indices)
+    print(len(fpm_indices))
 
-    x_est = FPM(image, fpm_indices, n_iter=20, lr=1e-2)
+    x_est = FPM(image, fpm_indices, n_iter=200, lr=1e-4)
     plt.figure()
     plt.imshow(th.angle(x_est).cpu().numpy()[0, 0])
+    plt.colorbar()
     plt.show()
