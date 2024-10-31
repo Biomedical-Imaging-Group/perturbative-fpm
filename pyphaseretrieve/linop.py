@@ -178,22 +178,18 @@ class Imag(LinOp):
         return x
 
 
+# https://chatgpt.com/share/671f9a7c-8ccc-8011-a1f1-57c74c2e1db1
 class RealPartExpand(LinOp):
-    def __init__(self, linop: LinOp):
-        self.linop = linop
+    def __init__(self):
         # TODO this is incorrect
-        self.in_shape = (2 * linop.in_shape[0],)
-        self.out_shape = linop.out_shape
+        self.in_shape = (-1, )
+        self.out_shape = (-1, )
 
     def apply(self, x):
-        return (
-            self.linop.apply(x[..., 0]).real - self.linop.apply(x[..., 1]).imag
-        )
+        return x.real
 
     def applyT(self, x):
-        return th.stack(
-            (self.linop.applyT(x).real, self.linop.applyT(x).imag), dim=-1
-        )
+        return x + 0j
 
 
 # 2D classes
@@ -291,76 +287,61 @@ class Roll2(LinOp):
         ].sum(1, keepdim=True)
 
 
+class PhaseShift(LinOp):
+    def __init__(self, shifts, shape):
+        M, N = shape
+        x = th.arange(M).reshape(-1, 1).to(shifts.device)
+        y = th.arange(N).reshape(1, -1).to(shifts.device)
+        self.in_shape = (-1,)
+        self.out_shape = (-1,)
+        self.shifts = shifts
+        self.phase_shift = th.exp(2j * np.pi * (x[None] * self.shifts[:, 0, None, None] / M + y[None] * self.shifts[:, 1, None, None] / N))[None]
+
+    # TODO check correctness
+    def apply(self, x):
+        return x * self.phase_shift
+
+    # TODO check correctness
+    def applyT(self, y):
+        return (y * self.phase_shift.conj()).sum(1, keepdim=True)
+
+
+# TODO tests
 class Crop2(LinOp):
     def __init__(self, in_shape, crop_shape):
         """assume square size of input image"""
         self.in_shape = in_shape
         self.out_shape = crop_shape
-        self.crop_shape = crop_shape
+
+        self.vstart = int(self.in_shape[0] // 2 - self.out_shape[0] // 2)
+        self.vend = self.vstart + self.out_shape[0]
+        self.hstart = int(self.in_shape[1] // 2 - self.out_shape[1] // 2)
+        self.hend = self.hstart + self.out_shape[1]
+
+        v_pad_size = self.in_shape[0] - self.out_shape[0]
+        h_pad_size = self.in_shape[1] - self.out_shape[1]
+
+        if self.in_shape[0] % 2 == 1:
+            vpad1 = np.floor(v_pad_size / 2)
+            vpad2 = np.ceil(v_pad_size / 2)
+        else:
+            vpad1 = np.ceil(v_pad_size / 2)
+            vpad2 = np.floor(v_pad_size / 2)
+
+        if self.in_shape[1] % 2 == 1:
+            hpad1 = np.floor(h_pad_size / 2)
+            hpad2 = np.ceil(h_pad_size / 2)
+        else:
+            hpad1 = np.ceil(h_pad_size / 2)
+            hpad2 = np.floor(h_pad_size / 2)
+
+        self.pads = tuple(int(pad) for pad in (vpad1, vpad2, hpad1, hpad2))
 
     def apply(self, x):
-        *_, v_size, h_size = x.shape
-        v_start = int(v_size // 2 - (self.crop_shape[0] // 2))
-        h_start = int(h_size // 2 - (self.crop_shape[1] // 2))
-        return x[
-            :,
-            :,
-            v_start:v_start + self.crop_shape[0],
-            h_start:h_start + self.crop_shape[1],
-        ]
+        return x[:, :, self.vstart:self.vend, self.hstart:self.hend]
 
     def applyT(self, x):
-        v_pad_size = self.in_shape[0] - self.crop_shape[0]
-        h_pad_size = self.in_shape[1] - self.crop_shape[1]
-
-        if v_pad_size != 0:
-            if self.in_shape[0] % 2 == 1:
-                x = th.nn.functional.pad(
-                    x,
-                    (
-                        int(np.floor(v_pad_size / 2)),
-                        int(np.ceil(v_pad_size / 2)),
-                        0,
-                        0,
-                    ),
-                    mode="constant",
-                )
-            else:
-                x = th.nn.functional.pad(
-                    x,
-                    (
-                        int(np.ceil(v_pad_size / 2)),
-                        int(np.floor(v_pad_size / 2)),
-                        0,
-                        0,
-                    ),
-                    mode="constant",
-                )
-
-        if h_pad_size != 0:
-            if self.in_shape[1] % 2 == 1:
-                x = th.nn.functional.pad(
-                    x,
-                    (
-                        0,
-                        0,
-                        int(np.floor(h_pad_size / 2)),
-                        int(np.ceil(h_pad_size / 2)),
-                    ),
-                    mode="constant",
-                )
-            else:
-                x = th.nn.functional.pad(
-                    x,
-                    (
-                        0,
-                        0,
-                        int(np.ceil(h_pad_size / 2)),
-                        int(np.floor(h_pad_size / 2)),
-                    ),
-                    mode="constant",
-                )
-        return x
+        return th.nn.functional.pad(x, self.pads, mode="constant")
 
 
 class Roll2_PadZero(LinOp):
@@ -415,8 +396,8 @@ class Stack(LinOp):
     # TODO this is not generic yet... probably the best implementation is just
     # with using lists..
     def applyT(self, x):
-        res = th.zeros_like(self.linops[0].applyT(x[:, 0:1, :, :]))
-        for idx, linop in enumerate(self.linops):
+        res = self.linops[0].applyT(x[:, 0:1, :, :])
+        for idx, linop in enumerate(self.linops[1:], start=1):
             res += linop.applyT(x[:, idx: idx + 1, :, :])
         return res
 
