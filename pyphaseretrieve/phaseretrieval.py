@@ -45,8 +45,6 @@ class Microscope:
         sin_theta = led_positions[:, 0:2] / \
             th.sqrt((led_positions ** 2).sum(-1, keepdims=True))
         self.led_na = (sin_theta ** 2).sum(-1).sqrt()
-        self.led_angles = th.angle(sin_theta[:, 0] + 1j * sin_theta[:, 1])
-
         self.shifts = sin_theta / self.lamda / self.fourier_res
 
     # TODO check correctness, looks very weird; taken from:
