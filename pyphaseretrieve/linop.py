@@ -244,64 +244,50 @@ class Roll2(LinOp):
         # https://discuss.pytorch.org/t/tensor-shifts-in-torch-roll/170655/2
         # This is still not really optimal, lots of stuff done for nothing
         # I think we can make this more efficient with a double-gather
-        ind0 = th.arange(n, dtype=th.int64, device=x.device)[
+        self.ind0 = th.arange(n, dtype=th.int64, device=x.device)[
             :, None, None, None
         ].expand(n, c, h, w)
-        ind1 = th.arange(c, dtype=th.int64, device=x.device)[
+        self.ind1 = th.arange(c, dtype=th.int64, device=x.device)[
             None, :, None, None
         ].expand(n, c, h, w)
-        ind2 = th.arange(h, dtype=th.int64, device=x.device)[
+        self.ind2 = th.arange(h, dtype=th.int64, device=x.device)[
             None, None, :, None
         ].expand(n, c, h, w)
-        ind3 = th.arange(w, dtype=th.int64, device=x.device)[
+        self.ind3 = th.arange(w, dtype=th.int64, device=x.device)[
             None, None, None, :
         ].expand(n, c, h, w)
 
         return expanded[
-            ind0,
-            ind1,
-            (ind2 + self.shifts[None, :, 0, None, None]) % h,
-            (ind3 + self.shifts[None, :, 1, None, None]) % w,
+            self.ind0,
+            self.ind1,
+            (self.ind2 + self.shifts[None, :, 0, None, None]) % h,
+            (self.ind3 + self.shifts[None, :, 1, None, None]) % w,
         ]
 
     def applyT(self, x):
-        n, c, h, w = x.shape
-        ind0 = th.arange(n, device=x.device)[:, None, None, None].expand(
-            n, c, h, w
-        )
-        ind1 = th.arange(c, device=x.device)[None, :, None, None].expand(
-            n, c, h, w
-        )
-        ind2 = th.arange(h, device=x.device)[None, None, :, None].expand(
-            n, c, h, w
-        )
-        ind3 = th.arange(w, device=x.device)[None, None, None, :].expand(
-            n, c, h, w
-        )
-
         return x[
-            ind0,
-            ind1,
-            (ind2 - self.shifts[None, :, 0, None, None]) % h,
-            (ind3 - self.shifts[None, :, 1, None, None]) % w,
+            self.ind0,
+            self.ind1,
+            (self.ind2 - self.shifts[None, :, 0, None, None]) % x.shape[2],
+            (self.ind3 - self.shifts[None, :, 1, None, None]) % x.shape[3],
         ].sum(1, keepdim=True)
 
 
 class PhaseShift(LinOp):
     def __init__(self, shifts, shape):
-        M, N = shape
-        x = th.arange(M).reshape(-1, 1).to(shifts.device)
-        y = th.arange(N).reshape(1, -1).to(shifts.device)
         self.in_shape = (-1,)
         self.out_shape = (-1,)
-        self.shifts = shifts
-        self.phase_shift = th.exp(2j * np.pi * (x[None] * self.shifts[:, 0, None, None] / M + y[None] * self.shifts[:, 1, None, None] / N))[None]
+        M, N = shape
+        x = th.arange(M)[:, None].to(shifts.device) / M
+        y = th.arange(N)[None, :].to(shifts.device) / N
+        self.phase_shift = th.exp(-2j * np.pi * (
+            x[None] * shifts[:, 0, None, None] +
+            y[None] * shifts[:, 1, None, None]
+        ))[None]
 
-    # TODO check correctness
     def apply(self, x):
         return x * self.phase_shift
 
-    # TODO check correctness
     def applyT(self, y):
         return (y * self.phase_shift.conj()).sum(1, keepdim=True)
 
