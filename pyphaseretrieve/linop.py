@@ -295,36 +295,24 @@ class PhaseShift(LinOp):
 # TODO tests
 class Crop2(LinOp):
     def __init__(self, in_shape, crop_shape):
-        """assume square size of input image"""
         self.in_shape = in_shape
         self.out_shape = crop_shape
 
-        self.vstart = int(self.in_shape[0] // 2 - self.out_shape[0] // 2)
-        self.vend = self.vstart + self.out_shape[0]
-        self.hstart = int(self.in_shape[1] // 2 - self.out_shape[1] // 2)
-        self.hend = self.hstart + self.out_shape[1]
+        self.istart = (self.in_shape[0] - self.out_shape[0]) // 2
+        self.iend = self.istart + self.out_shape[0]
 
-        v_pad_size = self.in_shape[0] - self.out_shape[0]
-        h_pad_size = self.in_shape[1] - self.out_shape[1]
+        self.jstart = (self.in_shape[1] - self.out_shape[1]) // 2
+        self.jend = self.jstart + self.out_shape[1]
 
-        if self.in_shape[0] % 2 == 1:
-            vpad1 = np.floor(v_pad_size / 2)
-            vpad2 = np.ceil(v_pad_size / 2)
-        else:
-            vpad1 = np.ceil(v_pad_size / 2)
-            vpad2 = np.floor(v_pad_size / 2)
+        ipad2 = self.in_shape[0] - self.iend
+        jpad2 = self.in_shape[1] - self.jend
 
-        if self.in_shape[1] % 2 == 1:
-            hpad1 = np.floor(h_pad_size / 2)
-            hpad2 = np.ceil(h_pad_size / 2)
-        else:
-            hpad1 = np.ceil(h_pad_size / 2)
-            hpad2 = np.floor(h_pad_size / 2)
-
-        self.pads = tuple(int(pad) for pad in (vpad1, vpad2, hpad1, hpad2))
+        self.pads = tuple(
+            int(pad) for pad in (self.jstart, jpad2, self.istart, ipad2)
+        )
 
     def apply(self, x):
-        return x[:, :, self.vstart:self.vend, self.hstart:self.hend]
+        return x[:, :, self.istart:self.iend, self.jstart:self.jend]
 
     def applyT(self, x):
         return th.nn.functional.pad(x, self.pads, mode="constant")
