@@ -36,13 +36,24 @@ assert th.allclose(
     (x * (real.T @ y)).real.sum(),
 )
 
-# TODO check if this is correct more thoroughly
-# TODO revert to angles again instead of shifts!
 x = th.randn((n, 1, h, w), dtype=th.complex64)
 y = th.randn((n, c, h, w), dtype=th.complex64)
 shifts = th.randint(-10, 10, (c, 2))
-phaseshift = pl.PhaseShift(shifts)
+phaseshift = pl.PhaseShift(shifts, (h, w))
 assert th.allclose(
     ((phaseshift @ x) * y.conj()).sum(),
     (x * (phaseshift.T @ y).conj()).sum(),
 )
+
+
+for h in range(20, 30):
+    for w in range(20, 30):
+        for hdiff in range(10):
+            for wdiff in range(10):
+                crop = pl.Crop2((h, w), (h - hdiff, w - wdiff))
+                x = th.randn((n, c, h, w), dtype=th.float64)
+                y = th.randn((n, c, h - hdiff, w - wdiff), dtype=th.float64)
+                assert th.allclose(
+                    ((crop @ x) * y).sum(),
+                    (x * (crop.T @ y)).sum(),
+                )
