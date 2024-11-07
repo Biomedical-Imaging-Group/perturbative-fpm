@@ -11,8 +11,8 @@ class Microscope:
         camera_size: int,
         lamda: float = 0.514,
         na: float = 0.19,
-        magnification: float = 8.1485,
-        pixel_size: float = 5.5,
+        magnification: float = 10,
+        pixel_size: float = 6.5,
     ):
         # Experiment Setup Parameters Setting (distance and length unit: um)
         # Optical system
@@ -79,7 +79,7 @@ class MultiplexedFourierPtychography:
         self.n_patterns = len(indices)
 
         phase_shift_ffts = [
-            pl.Fft2() @ pl.PhaseShift(microsope.shifts[index], shape)
+            pl.ShiftInterp(microsope.shifts[index]) @ pl.Fft2()
             for index in indices
         ] if exact_phase else [
             pl.Roll2(th.round(microsope.shifts[index]).to(th.int64)) @ pl.Fft2()
