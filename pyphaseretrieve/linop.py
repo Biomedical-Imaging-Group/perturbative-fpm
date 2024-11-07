@@ -292,6 +292,38 @@ class PhaseShift(LinOp):
         return (y * self.phase_shift.conj()).sum(1, keepdim=True)
 
 
+class ShiftInterp(LinOp):
+    def __init__(self, shifts):
+        self.in_shape = (-1, )
+        self.out_shape = (-1, )
+        self.shifts = shifts.fliplr()
+        self.dtype = th.float32
+
+    def apply(self, x):
+        x_ = x.expand(self.shifts.shape[0], 1, *x.shape[2:])
+        thetas = th.eye(2, 3, dtype=th.float32)[None].repeat(self.shifts.shape[0], 1, 1)
+        thetas[:, :, 2] = self.shifts / x.shape[2] * 2.
+        grid = th.nn.functional.affine_grid(thetas, (self.shifts.shape[0], 1, *x.shape[2:]), align_corners=False).to(self.dtype).to(x.device)
+        grid = ((grid + 1) % 2) - 1
+        return (
+            th.nn.functional.grid_sample(x_.real, grid, align_corners=False) +
+            1j *
+            th.nn.functional.grid_sample(x_.imag, grid, align_corners=False)
+        ).permute(1, 0, 2, 3)
+
+    def applyT(self, y):
+        y_ = y.permute(1, 0, 2, 3)
+        thetas = th.eye(2, 3, dtype=th.float32)[None].repeat(self.shifts.shape[0], 1, 1)
+        thetas[:, :, 2] = -self.shifts / y.shape[2] * 2
+        grid = th.nn.functional.affine_grid(thetas, (self.shifts.shape[0], 1, *y.shape[2:]), align_corners=False).to(self.dtype).to(y.device)
+        grid = ((grid + 1) % 2) - 1
+        return (
+            th.nn.functional.grid_sample(y_.real, grid, align_corners=False) +
+            1j *
+            th.nn.functional.grid_sample(y_.imag, grid, align_corners=False)
+        ).sum(0, keepdim=True)
+
+
 # TODO tests
 class Crop2(LinOp):
     def __init__(self, in_shape, crop_shape):
@@ -405,3 +437,23 @@ class SumReduce(LinOp):
     # TODO this is not generic yet wrt dimension
     def applyT(self, x):
         return x.expand(x.shape[0], self.size, *x.shape[2:])
+
+
+class Grad(LinOp):
+    def __init__(self):
+        self.in_shape = (-1,)
+        self.out_shape = (-1,)
+
+    def apply(self, x):
+        grad = th.zeros((x.shape[0], 2, *x.shape[2:]), device=x.device, dtype=x.dtype)
+        grad[:, 0:1, :, :-1] += x[:, :, :, 1:] - x[:, :, :, :-1]
+        grad[:, 1:2, :-1, :] += x[:, :, 1:, :] - x[:, :, :-1, :]
+        return grad
+
+    def applyT(self, y):
+        div = th.zeros((y.shape[0], 1, *y.shape[2:]), device=y.device, dtype=y.dtype)
+        div[:, :, :, 1:] += y[:, 0, :, :-1]
+        div[:, :, :, :-1] -= y[:, 0, :, :-1]
+        div[:, :, 1:, :] += y[:, 1, :-1, :]
+        div[:, :, :-1, :] -= y[:, 1, :-1, :]
+        return div
