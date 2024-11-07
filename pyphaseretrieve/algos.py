@@ -3,50 +3,6 @@ import pyphaseretrieve.phaseretrieval as pp
 import pyphaseretrieve.linop as plinop
 
 
-class SpectralMethod:
-    def __init__(self, pr_model):
-        self.pr_model = pr_model
-        self.x_shape = pr_model.in_shape
-
-    def iterate(self, y, initial_est=None, n_iter=100, method="Lu"):
-        y_norm = y / th.mean(y)
-        if method == "Lu":
-            threshold = th.maximum(1 - 1 / y_norm, -1)
-        else:
-            threshold = y_norm
-
-        if initial_est is not None:
-            x_est = th.copy(initial_est)
-        else:
-            x_est = th.random.randn(*self.x_shape)
-
-        for i_iter in range(th.minimum(n_iter, 10)):
-            x_new = self.pr_model.apply(x_est)
-            x_new = threshold * x_new
-            x_new = self.pr_model.applyT(x_new)
-            x_est = x_new / th.linalg.norm(x_new)
-
-        x_new = self.pr_model.apply(x_est)
-        x_new = threshold * x_new
-        x_new = self.pr_model.applyT(x_new)
-        corr = th.real(x_new.ravel().T.conj() @ x_est.ravel())
-
-        if corr < 0:
-            for i_iter in range(n_iter):
-                x_new = self.pr_model.apply(x_est)
-                x_new = threshold * x_new
-                x_new = self.pr_model.applyT(x_new)
-                x_new = x_new + 1.1 * th.abs(corr) * x_est
-                x_est = x_new / th.linalg.norm(x_new)
-        else:
-            for i_iter in range(n_iter - 10):
-                x_new = self.pr_model.apply(x_est)
-                x_new = threshold * x_new
-                x_new = self.pr_model.applyT(x_new)
-                x_est = x_new / th.linalg.norm(x_new)
-        return x_est
-
-
 def gradient_descent(
     grad,
     tau: float,
@@ -109,6 +65,50 @@ def conjugate_gradient(
         if (th.sqrt((r.abs()**2).sum(dim=dim)) < tol).all():
             break
     return x
+
+
+def irgn(
+    f,
+    x0,
+    n_iter,
+    solve,
+    callback=lambda x: None,
+):
+    x = x0.clone()
+    dx = th.zeros_like(x)
+
+    for _ in range(n_iter):
+        J = f.jacobian(x)
+        dx = solve(J, x)
+        x += dx
+        callback(x)
+
+    return x
+
+
+def condat_vu(K, prox_g, prox_fs, nabla_h, tau, sigma, x_0, y_0, callback=lambda x, y, i: None, n_iter=100):
+    x = x_0.clone()
+    y = y_0.clone()
+
+    for _ in range(n_iter):
+        x_old = x.clone()
+        x = prox_g(x - tau * (K.T @ y + nabla_h(x)))
+        y = prox_fs(y + sigma * (K @ (2 * x - x_old)))
+        callback(x, y, _)
+
+    return x
+
+
+
+def power_iteration(A, x0, n_iter=10):
+    x = x0.clone()
+
+    for _ in range(n_iter):
+        ax = A @ x
+        x = ax / (ax.abs() ** 2).sum().sqrt()
+
+    return x
+
 
 
 def gerchberg_saxton(
