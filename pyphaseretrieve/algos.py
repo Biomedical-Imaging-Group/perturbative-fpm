@@ -68,7 +68,7 @@ def conjugate_gradient(
 
 
 def irgn(
-    f,
+    jacobian,
     x0,
     n_iter,
     solve,
@@ -78,8 +78,9 @@ def irgn(
     dx = th.zeros_like(x)
 
     for _ in range(n_iter):
-        J = f.jacobian(x)
-        dx = solve(J, x)
+        # This basically doesnt actually do anything anymore since everything
+        # is outsourced to "solve" (which might be a misnomer)
+        dx = solve(jacobian(x), x)
         x += dx
         callback(x)
 
@@ -108,7 +109,6 @@ def power_iteration(A, x0, n_iter=10):
         x = ax / (ax.abs() ** 2).sum().sqrt()
 
     return x
-
 
 
 def gerchberg_saxton(
