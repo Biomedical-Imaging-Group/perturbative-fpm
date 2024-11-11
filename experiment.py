@@ -104,7 +104,7 @@ experiments = {
     },
 }
 
-output_root = Path(os.environ['EXPERIMENTS_ROOT']) / 'phaseretrieval'
+output_root = Path(os.environ['EXPERIMENTS_ROOT']) / 'phaseretrieval' / 'experiments'
 for reg, weight in zip(['tv', 'l2'], [2e5, 1e5]):
     for name, params in experiments.items():
         our_images = images[:, params['patterns']]
