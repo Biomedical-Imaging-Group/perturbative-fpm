@@ -106,15 +106,12 @@ experiments = {
 
 output_root = Path(os.environ['EXPERIMENTS_ROOT']) / 'phaseretrieval'
 for reg, weight in zip(['tv', 'l2'], [2e5, 1e5]):
-    # TODO we can remove this most likely, to flatten the output directory
-    # structure we use inexact only anyway
-    phase_path = 'inexact-phase'
     for name, params in experiments.items():
         our_images = images[:, params['patterns']]
         our_indices = [indices[pattern] for pattern in params['patterns']]
         model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
         x_est = pp.PPR(our_images, model, params['n_iter'], params['linear_n_iter'], reg=reg)
-        utils.dump_experiments(th.angle(x_est), output_root / reg / phase_path / name, crop)
+        utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
 
 
 # DPC experiments
