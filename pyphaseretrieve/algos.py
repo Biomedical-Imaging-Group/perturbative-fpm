@@ -1,5 +1,4 @@
 import torch as th
-import pyphaseretrieve.phaseretrieval as pp
 import pyphaseretrieve.linop as plinop
 
 
@@ -62,7 +61,7 @@ def conjugate_gradient(
         r = r_new.clone()
         callback(x)
 
-        if (th.sqrt((r.abs()**2).sum(dim=dim)) < tol).all():
+        if (th.sqrt((r.abs() ** 2).sum(dim=dim)) < tol).all():
             break
     return x
 
@@ -87,7 +86,18 @@ def irgn(
     return x
 
 
-def condat_vu(K, prox_g, prox_fs, nabla_h, tau, sigma, x_0, y_0, callback=lambda x, y, i: None, n_iter=100):
+def condat_vu(
+    K,
+    prox_g,
+    prox_fs,
+    nabla_h,
+    tau,
+    sigma,
+    x_0,
+    y_0,
+    callback=lambda x, y, i: None,
+    n_iter=100,
+):
     x = x_0.clone()
     y = y_0.clone()
 
@@ -98,7 +108,6 @@ def condat_vu(K, prox_g, prox_fs, nabla_h, tau, sigma, x_0, y_0, callback=lambda
         callback(x, y, _)
 
     return x
-
 
 
 def power_iteration(A, x0, n_iter=10):

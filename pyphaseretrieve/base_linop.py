@@ -79,9 +79,7 @@ class Composition(LinOp):
     def __init__(self, LinOp1: LinOp, LinOp2: LinOp):
         self.LinOp1 = LinOp1
         self.LinOp2 = LinOp2
-        self.in_shape = (
-            LinOp1.in_shape if LinOp2.in_shape == (-1,) else LinOp2.in_shape
-        )
+        self.in_shape = LinOp1.in_shape if LinOp2.in_shape == (-1,) else LinOp2.in_shape
         self.out_shape = (
             LinOp2.out_shape if LinOp1.out_shape == (-1,) else LinOp1.out_shape
         )
@@ -98,9 +96,7 @@ class Sum(LinOp):
         self.LinOp1 = LinOp1
         self.LinOp2 = LinOp2
         self.in_shape = (
-            LinOp1.in_shape
-            if LinOp1.in_shape > LinOp2.in_shape
-            else LinOp2.in_shape
+            LinOp1.in_shape if LinOp1.in_shape > LinOp2.in_shape else LinOp2.in_shape
         )
         self.out_shape = (
             LinOp1.out_shape
@@ -120,9 +116,7 @@ class Diff(LinOp):
         self.LinOp1 = LinOp1
         self.LinOp2 = LinOp2
         self.in_shape = (
-            LinOp1.in_shape
-            if LinOp1.in_shape > LinOp2.in_shape
-            else LinOp2.in_shape
+            LinOp1.in_shape if LinOp1.in_shape > LinOp2.in_shape else LinOp2.in_shape
         )
         self.out_shape = (
             LinOp1.out_shape

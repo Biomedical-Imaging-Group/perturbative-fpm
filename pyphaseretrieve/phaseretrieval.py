@@ -40,18 +40,20 @@ class Microscope:
         )
         pupil_radius = self.na / self.lamda / self.fourier_res
         self.pupil_mask = pl.Fftshift() @ (
-            th.sqrt(temp_mask_h**2 + temp_mask_v**2) <= pupil_radius)
+            th.sqrt(temp_mask_h**2 + temp_mask_v**2) <= pupil_radius
+        )
 
         self.led_positions = led_positions
-        sin_theta = led_positions[:, 0:2] / \
-            th.sqrt((led_positions ** 2).sum(-1, keepdims=True))
-        self.led_na = (sin_theta ** 2).sum(-1).sqrt()
+        sin_theta = led_positions[:, 0:2] / th.sqrt(
+            (led_positions**2).sum(-1, keepdims=True)
+        )
+        self.led_na = (sin_theta**2).sum(-1).sqrt()
         self.shifts = sin_theta / self.lamda / self.fourier_res
 
     # TODO check correctness, looks very weird; taken from:
     # self.bf_mask = th.sqrt((sin_theta**2).sum(-1)) <= self.na
     def is_brightfield_led(self, position: th.Tensor) -> th.Tensor:
-        tmp = position[:2] / (position ** 2).sum().sqrt()
+        tmp = position[:2] / (position**2).sum().sqrt()
         angle = th.angle(tmp[0] + 1j * tmp[1])
         return angle <= self.na
 
@@ -61,9 +63,7 @@ class Microscope:
         na_illu = self.led_na[indices].max()
         na = na_illu + self.na
         return np.maximum(
-            int(self.camera_size), int(
-                th.ceil(2 * na / self.lamda / self.fourier_res)
-            )
+            int(self.camera_size), int(th.ceil(2 * na / self.lamda / self.fourier_res))
         )
 
 
@@ -80,13 +80,11 @@ class MultiplexedFourierPtychography:
         self.n_patterns = len(indices)
         self.shifts = [microsope.shifts[index] for index in indices]
 
-        phase_shift_ffts = [
-            pl.ShiftInterp(sh) @ pl.Fft2()
-            for sh in self.shifts
-        ] if exact_phase else [
-            pl.Roll2(th.round(sh).to(th.int64)) @ pl.Fft2()
-            for sh in self.shifts
-        ]
+        phase_shift_ffts = (
+            [pl.ShiftInterp(sh) @ pl.Fft2() for sh in self.shifts]
+            if exact_phase
+            else [pl.Roll2(th.round(sh).to(th.int64)) @ pl.Fft2() for sh in self.shifts]
+        )
 
         self.forwards = [
             pl.Ifft2()
@@ -109,11 +107,15 @@ class MultiplexedFourierPtychography:
         return y
 
     def jacobian(self, x: th.Tensor):
-        return pl.Stack([
-            pl.SumReduce(1, n_leds)
-            @ pl.RealPartExpand() @ pl.Mul(2 * (forward @ x).conj()) @ forward
-            for forward, n_leds in zip(self.forwards, self.n_leds)
-        ])
+        return pl.Stack(
+            [
+                pl.SumReduce(1, n_leds)
+                @ pl.RealPartExpand()
+                @ pl.Mul(2 * (forward @ x).conj())
+                @ forward
+                for forward, n_leds in zip(self.forwards, self.n_leds)
+            ]
+        )
 
 
 def FPM(
@@ -122,10 +124,10 @@ def FPM(
     shape: tuple[int, int],
     n_iter: int = 50,
     tau: float = 1e-6,
-    loss: str = 'amplitude',
+    loss: str = "amplitude",
     epsilon: float = 1e-4,
 ):
-    assert loss in ['amplitude', 'intensity']
+    assert loss in ["amplitude", "intensity"]
     dtype = th.complex64 if y.dtype is th.float32 else th.complex128
     x0 = th.ones((1, 1, *shape), dtype=dtype, device=y.device)
     # x0 *= (th.mean(y[0, 0]) / model.forward(x0)[0, 0].mean()).sqrt()
@@ -134,16 +136,15 @@ def FPM(
         plt.figure()
         plt.imshow(th.angle(x)[0, 0].cpu().numpy())
         plt.show()
-        if loss == 'amplitude':
+        if loss == "amplitude":
             print(((model.forward(x).sqrt() - y.sqrt()) ** 2).sum())
             # This was tested against autograd, seems to be correct
-            field = th.cat(tuple(
-                forw @ x for forw in model.forwards
-            ), dim=1)
+            field = th.cat(tuple(forw @ x for forw in model.forwards), dim=1)
             ex = field - field / (field.abs() + epsilon) * y.sqrt()
-            back = th.cat(tuple(
-                forw.T @ e[None, None] for forw, e in zip(model.forwards, ex[0])
-            ), dim=1)
+            back = th.cat(
+                tuple(forw.T @ e[None, None] for forw, e in zip(model.forwards, ex[0])),
+                dim=1,
+            )
             return back.sum(1, keepdim=True)
         else:
             return model.jacobian(x).T @ (model.forward(x) - y)
@@ -155,7 +156,7 @@ def DPC(
     y: th.Tensor,
     model: MultiplexedFourierPtychography,
     shape: tuple[int, int],
-    alpha: float = 5e1
+    alpha: float = 5e1,
 ) -> th.Tensor:
     dtype = th.complex64 if y.dtype is th.float32 else th.complex128
     crop = pl.Crop2(
@@ -168,15 +169,23 @@ def DPC(
     denom = th.zeros(shape, dtype=y.dtype, device=y.device)[None, None]
     probe_ = model.probe.to(th.int32)
     pad = (shape[0] - probe_.shape[2]) // 2
-    probe_ = th.fft.fftshift(th.nn.functional.pad(th.fft.ifftshift(probe_[0, 0]), (pad, pad, pad, pad)))[None, None]
+    probe_ = th.fft.fftshift(
+        th.nn.functional.pad(th.fft.ifftshift(probe_[0, 0]), (pad, pad, pad, pad))
+    )[None, None]
     all_shifts = [th.round(sh).to(th.int64) for sh in model.shifts]
 
     for i_m, shifts in enumerate(all_shifts):
         hm = (pl.Roll2(-shifts) @ probe_ - pl.Roll2(shifts) @ probe_).sum(
             1, keepdim=True
         )
-        numerator += ((hm * 1j).conj() * pl.Ifftshift() @ crop.T
-                      @ pl.Fftshift() @ pl.Fft2() @ y[:, i_m:i_m + 1])
+        numerator += (
+            (hm * 1j).conj()
+            * pl.Ifftshift()
+            @ crop.T
+            @ pl.Fftshift()
+            @ pl.Fft2()
+            @ y[:, i_m : i_m + 1]
+        )
         denom += th.abs(hm) ** 2
 
     return (pl.Ifft2() @ (numerator / (denom + alpha))).real / fac
@@ -189,14 +198,14 @@ def PPR(
     n_iter: int = 4,
     inner_iter: int = 100,
     alpha: float = 1e5,
-    reg='l2'
+    reg="l2",
 ) -> th.Tensor:
     dtype = th.complex64 if y.dtype is th.float32 else th.complex128
     x0 = th.ones((1, 1, *shape), dtype=dtype, device=y.device)
     x0 *= (th.mean(y[0, 0]) / model.forward(x0)[0, 0].mean()).sqrt()
 
     def solve(J, x):
-        if reg == 'tv':
+        if reg == "tv":
             nonlocal alpha
             alpha /= 2
             b = algos.power_iteration(J.T @ J, x, n_iter=10)
@@ -205,7 +214,7 @@ def PPR(
             sigma = 1 / opnormD
             fac = th.sqrt(opnormJTJ)
             sigma *= fac
-            sigmaLsqlH = sigma * opnormD ** 2 + opnormJTJ
+            sigmaLsqlH = sigma * opnormD**2 + opnormJTJ
             tau = 1 / sigmaLsqlH
 
             def nabla_h(x_):
@@ -218,18 +227,26 @@ def PPR(
                 y_ = y + alpha * sigma * pl.Grad() @ x
                 return y_ / th.maximum(
                     (y_.abs() ** 2).sum(1, keepdims=True).sqrt() / alpha,
-                    th.ones(y.shape, device=y.device)
+                    th.ones(y.shape, device=y.device),
                 )
 
             return algos.condat_vu(
-                pl.Grad(), prox_g, prox_fs, nabla_h,
-                tau, sigma, x, pl.Grad() @ x, n_iter=inner_iter,
+                pl.Grad(),
+                prox_g,
+                prox_fs,
+                nabla_h,
+                tau,
+                sigma,
+                x,
+                pl.Grad() @ x,
+                n_iter=inner_iter,
             )
         else:
             return algos.conjugate_gradient(
                 J.T @ J + alpha * pl.Id(),
                 J.T @ (y - model.forward(x)),
-                th.zeros_like(x), n_iter=inner_iter,
+                th.zeros_like(x),
+                n_iter=inner_iter,
             )
 
     return algos.irgn(jacobian=model.jacobian, x0=x0, n_iter=n_iter, solve=solve)

@@ -115,18 +115,10 @@ class Roll(LinOp):
         expanded = x.expand(-1, c, -1, -1)
         # https://discuss.pytorch.org/t/tensor-shifts-in-torch-roll/170655/2
         # This is still not really optimal, lots of stuff done for nothing
-        ind0 = th.arange(n, dtype=th.int64)[:, None, None, None].expand(
-            n, c, h, w
-        )
-        ind1 = th.arange(c, dtype=th.int64)[None, :, None, None].expand(
-            n, c, h, w
-        )
-        ind2 = th.arange(h, dtype=th.int64)[None, None, :, None].expand(
-            n, c, h, w
-        )
-        ind3 = th.arange(w, dtype=th.int64)[None, None, None, :].expand(
-            n, c, h, w
-        )
+        ind0 = th.arange(n, dtype=th.int64)[:, None, None, None].expand(n, c, h, w)
+        ind1 = th.arange(c, dtype=th.int64)[None, :, None, None].expand(n, c, h, w)
+        ind2 = th.arange(h, dtype=th.int64)[None, None, :, None].expand(n, c, h, w)
+        ind3 = th.arange(w, dtype=th.int64)[None, None, None, :].expand(n, c, h, w)
 
         return expanded[
             ind0,
@@ -182,8 +174,8 @@ class Imag(LinOp):
 class RealPartExpand(LinOp):
     def __init__(self):
         # TODO this is incorrect
-        self.in_shape = (-1, )
-        self.out_shape = (-1, )
+        self.in_shape = (-1,)
+        self.out_shape = (-1,)
 
     def apply(self, x):
         return x.real
@@ -280,10 +272,11 @@ class PhaseShift(LinOp):
         M, N = shape
         x = th.arange(M)[:, None].to(shifts.device) / M
         y = th.arange(N)[None, :].to(shifts.device) / N
-        self.phase_shift = th.exp(-2j * np.pi * (
-            x[None] * shifts[:, 0, None, None] +
-            y[None] * shifts[:, 1, None, None]
-        ))[None]
+        self.phase_shift = th.exp(
+            -2j
+            * np.pi
+            * (x[None] * shifts[:, 0, None, None] + y[None] * shifts[:, 1, None, None])
+        )[None]
 
     def apply(self, x):
         return x * self.phase_shift
@@ -294,33 +287,43 @@ class PhaseShift(LinOp):
 
 class ShiftInterp(LinOp):
     def __init__(self, shifts):
-        self.in_shape = (-1, )
-        self.out_shape = (-1, )
+        self.in_shape = (-1,)
+        self.out_shape = (-1,)
         self.shifts = shifts.fliplr()
         self.dtype = th.float32
 
     def apply(self, x):
         x_ = x.expand(self.shifts.shape[0], 1, *x.shape[2:])
         thetas = th.eye(2, 3, dtype=th.float32)[None].repeat(self.shifts.shape[0], 1, 1)
-        thetas[:, :, 2] = self.shifts / x.shape[2] * 2.
-        grid = th.nn.functional.affine_grid(thetas, (self.shifts.shape[0], 1, *x.shape[2:]), align_corners=False).to(self.dtype).to(x.device)
+        thetas[:, :, 2] = self.shifts / x.shape[2] * 2.0
+        grid = (
+            th.nn.functional.affine_grid(
+                thetas, (self.shifts.shape[0], 1, *x.shape[2:]), align_corners=False
+            )
+            .to(self.dtype)
+            .to(x.device)
+        )
         grid = ((grid + 1) % 2) - 1
         return (
-            th.nn.functional.grid_sample(x_.real, grid, align_corners=False) +
-            1j *
-            th.nn.functional.grid_sample(x_.imag, grid, align_corners=False)
+            th.nn.functional.grid_sample(x_.real, grid, align_corners=False)
+            + 1j * th.nn.functional.grid_sample(x_.imag, grid, align_corners=False)
         ).permute(1, 0, 2, 3)
 
     def applyT(self, y):
         y_ = y.permute(1, 0, 2, 3)
         thetas = th.eye(2, 3, dtype=th.float32)[None].repeat(self.shifts.shape[0], 1, 1)
         thetas[:, :, 2] = -self.shifts / y.shape[2] * 2
-        grid = th.nn.functional.affine_grid(thetas, (self.shifts.shape[0], 1, *y.shape[2:]), align_corners=False).to(self.dtype).to(y.device)
+        grid = (
+            th.nn.functional.affine_grid(
+                thetas, (self.shifts.shape[0], 1, *y.shape[2:]), align_corners=False
+            )
+            .to(self.dtype)
+            .to(y.device)
+        )
         grid = ((grid + 1) % 2) - 1
         return (
-            th.nn.functional.grid_sample(y_.real, grid, align_corners=False) +
-            1j *
-            th.nn.functional.grid_sample(y_.imag, grid, align_corners=False)
+            th.nn.functional.grid_sample(y_.real, grid, align_corners=False)
+            + 1j * th.nn.functional.grid_sample(y_.imag, grid, align_corners=False)
         ).sum(0, keepdim=True)
 
 
@@ -339,12 +342,10 @@ class Crop2(LinOp):
         ipad2 = self.in_shape[0] - self.iend
         jpad2 = self.in_shape[1] - self.jend
 
-        self.pads = tuple(
-            int(pad) for pad in (self.jstart, jpad2, self.istart, ipad2)
-        )
+        self.pads = tuple(int(pad) for pad in (self.jstart, jpad2, self.istart, ipad2))
 
     def apply(self, x):
-        return x[:, :, self.istart:self.iend, self.jstart:self.jend]
+        return x[:, :, self.istart : self.iend, self.jstart : self.jend]
 
     def applyT(self, x):
         return th.nn.functional.pad(x, self.pads, mode="constant")
@@ -360,29 +361,29 @@ class Roll2_PadZero(LinOp):
     def apply(self, x):
         x = th.roll(x, self.h_shifts, dims=1)
         if self.h_shifts < 0:
-            x[:, self.h_shifts:] = 0
+            x[:, self.h_shifts :] = 0
         elif self.h_shifts > 0:
-            x[:, 0: self.h_shifts] = 0
+            x[:, 0 : self.h_shifts] = 0
 
         x = th.roll(x, self.v_shifts, dims=0)
         if self.v_shifts < 0:
-            x[self.v_shifts:, :] = 0
+            x[self.v_shifts :, :] = 0
         elif self.v_shifts > 0:
-            x[0: self.v_shifts, :] = 0
+            x[0 : self.v_shifts, :] = 0
         return x
 
     def applyT(self, x):
         x = th.roll(x, -self.h_shifts, dims=1)
         if -self.h_shifts < 0:
-            x[:, -self.h_shifts:] = 0
+            x[:, -self.h_shifts :] = 0
         elif -self.h_shifts > 0:
-            x[:, 0: -self.h_shifts] = 0
+            x[:, 0 : -self.h_shifts] = 0
 
         x = th.roll(x, -self.v_shifts, dims=0)
         if -self.v_shifts < 0:
-            x[-self.v_shifts:, :] = 0
+            x[-self.v_shifts :, :] = 0
         elif -self.v_shifts > 0:
-            x[0: -self.v_shifts, :] = 0
+            x[0 : -self.v_shifts, :] = 0
         return x
 
 
@@ -404,7 +405,7 @@ class Stack(LinOp):
     def applyT(self, x):
         res = self.linops[0].applyT(x[:, 0:1, :, :])
         for idx, linop in enumerate(self.linops[1:], start=1):
-            res += linop.applyT(x[:, idx: idx + 1, :, :])
+            res += linop.applyT(x[:, idx : idx + 1, :, :])
         return res
 
 

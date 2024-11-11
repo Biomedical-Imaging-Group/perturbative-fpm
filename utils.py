@@ -16,18 +16,18 @@ def dump_experiments(x, path, crop):
 
     vals = x[lineplot_istart:lineplot_iend, lineplot_j]
     vals = np.stack((plot_xaxis, vals)).T
-    np.savetxt(path / 'vals.csv', vals,
-               delimiter=",", header='x,y', comments='', fmt='%.5f')
+    np.savetxt(
+        path / "vals.csv", vals, delimiter=",", header="x,y", comments="", fmt="%.5f"
+    )
 
     span = np.array([x.min().item(), x.max().item()])[None]
-    np.savetxt(path / 'span.csv', span,
-               delimiter=",", fmt='%.1f')
+    np.savetxt(path / "span.csv", span, delimiter=",", fmt="%.1f")
 
     x -= x.min()
     x /= x.max()
-    x *= 255.
+    x *= 255.0
     x = x.astype(np.uint8)
-    imageio.imwrite(path / 'x_est.png', x)
+    imageio.imwrite(path / "x_est.png", x)
 
 
 def dump_simulation(x, ref, path):
@@ -40,17 +40,17 @@ def dump_simulation(x, ref, path):
 
     x = th.angle(x)
     span = np.array([x.min().item().real, x.max().item().real])[None]
-    np.savetxt(path / 'span.csv', span, delimiter=",", fmt='%.1f')
+    np.savetxt(path / "span.csv", span, delimiter=",", fmt="%.1f")
     x = x.cpu().numpy().squeeze()
     x -= x.min()
     x /= x.max()
-    x *= 255.
+    x *= 255.0
     x = x.astype(np.uint8)
-    imageio.imwrite(path / 'x_est.png', x)
+    imageio.imwrite(path / "x_est.png", x)
 
     ft_error = ft_error.cpu().numpy().squeeze()
     ft_error -= ft_error.min()
     ft_error /= ft_error.max()
-    ft_error *= 255.
+    ft_error *= 255.0
     ft_error = ft_error.astype(np.uint8)
-    imageio.imwrite(path / 'ft_error.png', ft_error)
+    imageio.imwrite(path / "ft_error.png", ft_error)
