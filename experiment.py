@@ -106,7 +106,6 @@ experiments = {
 
 output_root = Path(os.environ['EXPERIMENTS_ROOT']) / 'phaseretrieval'
 for reg, weight in zip(['tv', 'l2'], [2e5, 1e5]):
-    continue
     # TODO we can remove this most likely, to flatten the output directory
     # structure we use inexact only anyway
     phase_path = 'inexact-phase'
@@ -119,13 +118,13 @@ for reg, weight in zip(['tv', 'l2'], [2e5, 1e5]):
 
 
 # DPC experiments
-# alpha = 1e6
-# dpc_patterns = [1, 2]
-# dpc_images = images[:, dpc_patterns]
-# dpc_indices = [indices[pattern] for pattern in dpc_patterns]
-# model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
-# x_est = pp.DPC(dpc_images, model, shape, alpha)
-# utils.dump_experiments(x_est, output_root / 'DPC', crop)
+alpha = 1e6
+dpc_patterns = [1, 2]
+dpc_images = images[:, dpc_patterns]
+dpc_indices = [indices[pattern] for pattern in dpc_patterns]
+model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
+x_est = pp.DPC(dpc_images, model, shape, alpha)
+utils.dump_experiments(x_est, output_root / 'DPC', crop)
 
 
 # FPM experiments; requires to load the FPM data. For some reason, the x dir
