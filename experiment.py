@@ -7,7 +7,7 @@ from pathlib import Path
 import pyphaseretrieve.phaseretrieval as pp
 
 
-mps = False
+mps = True
 if mps:
     device = th.device("mps")
     dtype = th.float32
@@ -108,25 +108,26 @@ experiments = {
 }
 
 output_root = Path(os.environ["EXPERIMENTS_ROOT"]) / "phaseretrieval" / "experiments"
-for reg, weight in zip(["tv", "l2"], [2e5, 1e5]):
-    for name, params in experiments.items():
-        our_images = images[:, params["patterns"]]
-        our_indices = [indices[pattern] for pattern in params["patterns"]]
-        model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
-        x_est = pp.PPR(
-            our_images, model, params["n_iter"], params["linear_n_iter"], reg=reg
-        )
-        utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
+# for reg, weight in zip(["tv", "l2"], [2e5, 1e5]):
+#     for name, params in experiments.items():
+#         our_images = images[:, params["patterns"]]
+#         our_indices = [indices[pattern] for pattern in params["patterns"]]
+#         model = pp.MultiplexedFourierPtychography(microscope, our_indices, shape)
+#         x_est = pp.PPR(
+#             our_images, model, shape, params["n_iter"], params["linear_n_iter"], reg=reg
+#         )
+#         utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
 
 
 # DPC experiments
-alpha = 1e6
+alpha = 5e0
 dpc_patterns = [1, 2]
 dpc_images = images[:, dpc_patterns]
 dpc_indices = [indices[pattern] for pattern in dpc_patterns]
 model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
 x_est = pp.DPC(dpc_images, model, shape, alpha)
 utils.dump_experiments(x_est, output_root / "DPC", crop)
+exit(0)
 
 
 # FPM experiments; requires to load the FPM data. For some reason, the x dir
@@ -148,6 +149,6 @@ images = th.from_numpy(images).to(dtype).to(device)
 # FPM indices are just 1...N, leds ordered by NA
 indices = th.arange(images.shape[1])[:, None]
 model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
-tau = 1e-9
-x_est = pp.FPM(images, model, shape, tau=tau)
+tau = 1e-2
+x_est = pp.FPM(images, model, shape, n_iter=50, tau=tau, epsilon=1.5e1)
 utils.dump_experiments(th.angle(x_est), output_root / "FPM", crop)

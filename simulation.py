@@ -49,7 +49,7 @@ def synthetic_led_positions(n_leds: int, pitch: float, z: float):
     ).view(n_leds**2, 3)
 
 
-mps = False
+mps = True
 if mps:
     device = th.device("mps")
     dtype = th.float32
@@ -146,5 +146,5 @@ fpm_indices = led_indices_by_radii(led_positions, [th.Tensor([0, fpm_radius])])
 fpm_indices = [th.Tensor([index]).to(th.int64) for index in fpm_indices[0]]
 model = pp.MultiplexedFourierPtychography(microscope, fpm_indices, shape)
 y = model.forward(image)
-x_est = pp.FPM(y, model, shape, n_iter=100, tau=4e-2, epsilon=0)
+x_est = pp.FPM(y, model, shape, n_iter=100, tau=4e-2, epsilon=1e-6)
 utils.dump_simulation(x_est, image, output_root / "FPM")
