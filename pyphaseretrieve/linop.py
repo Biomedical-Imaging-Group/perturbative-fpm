@@ -12,8 +12,8 @@ class Matrix(LinOp):
     def apply(self, x):
         return self.H @ x
 
-    def applyT(self, x):
-        return self.H.T.conj() @ x
+    def applyT(self, y):
+        return self.H.T.conj() @ y
 
 
 class Mul(LinOp):
@@ -27,8 +27,8 @@ class Mul(LinOp):
     def apply(self, x):
         return self.coefs * x
 
-    def applyT(self, x):
-        return self.coefs.conj() * x
+    def applyT(self, y):
+        return self.coefs.conj() * y
 
 
 class Fft(LinOp):
@@ -39,8 +39,8 @@ class Fft(LinOp):
     def apply(self, x):
         return th.fft.fft(x, norm="ortho")
 
-    def applyT(self, x):
-        return th.fft.ifft(x, norm="ortho")
+    def applyT(self, y):
+        return th.fft.ifft(y, norm="ortho")
 
 
 class Ifft(LinOp):
@@ -51,8 +51,8 @@ class Ifft(LinOp):
     def apply(self, x):
         return th.fft.ifft(x, norm="ortho")
 
-    def applyT(self, x):
-        return th.fft.fft(x, norm="ortho")
+    def applyT(self, y):
+        return th.fft.fft(y, norm="ortho")
 
 
 class Fftshift(LinOp):
@@ -63,8 +63,8 @@ class Fftshift(LinOp):
     def apply(self, x):
         return th.fft.fftshift(x, dim=(-2, -1))
 
-    def applyT(self, x):
-        return th.fft.ifftshift(x, dim=(-2, -1))
+    def applyT(self, y):
+        return th.fft.ifftshift(y, dim=(-2, -1))
 
 
 class Ifftshift(LinOp):
@@ -75,8 +75,8 @@ class Ifftshift(LinOp):
     def apply(self, x):
         return th.fft.ifftshift(x, dim=(-2, -1))
 
-    def applyT(self, x):
-        return th.fft.fftshift(x, dim=(-2, -1))
+    def applyT(self, y):
+        return th.fft.fftshift(y, dim=(-2, -1))
 
 
 class Id(LinOp):
@@ -87,8 +87,8 @@ class Id(LinOp):
     def apply(self, x):
         return x
 
-    def applyT(self, x):
-        return x
+    def applyT(self, y):
+        return y
 
 
 class Flip(LinOp):
@@ -99,8 +99,8 @@ class Flip(LinOp):
     def apply(self, x):
         return th.flip(x)
 
-    def applyT(self, x):
-        return th.flip(x)
+    def applyT(self, y):
+        return th.flip(y)
 
 
 class Roll(LinOp):
@@ -127,10 +127,10 @@ class Roll(LinOp):
             (ind3 + self.shifts[:, 1, None, None, None]) % w,
         ]
 
-    def applyT(self, x):
-        n, _, h, w = x.shape
+    def applyT(self, y):
+        n, _, h, w = y.shape
         c = self.shifts.shape[0]
-        expanded = x.expand(-1, c, -1, -1)
+        expanded = y.expand(-1, c, -1, -1)
         # https://discuss.pytorch.org/t/tensor-shifts-in-torch-roll/170655/2
         # This is still not really optimal, lots of stuff done for nothing
         ind0 = th.arange(n)[:, None, None, None].expand(n, c, h, w)
@@ -154,8 +154,8 @@ class Real(LinOp):
     def apply(self, x):
         return x.real
 
-    def applyT(self, x):
-        return x
+    def applyT(self, y):
+        return y
 
 
 class Imag(LinOp):
@@ -166,8 +166,8 @@ class Imag(LinOp):
     def apply(self, x):
         return x.imag
 
-    def applyT(self, x):
-        return x
+    def applyT(self, y):
+        return y
 
 
 # https://chatgpt.com/share/671f9a7c-8ccc-8011-a1f1-57c74c2e1db1
@@ -180,8 +180,8 @@ class RealPartExpand(LinOp):
     def apply(self, x):
         return x.real
 
-    def applyT(self, x):
-        return x + 0j
+    def applyT(self, y):
+        return y + 0j
 
 
 # 2D classes
@@ -194,8 +194,8 @@ class Matrix2(LinOp):
     def apply(self, x):
         return self.H @ x
 
-    def applyT(self, x):
-        return self.H.T.conj() @ x
+    def applyT(self, y):
+        return self.H.T.conj() @ y
 
 
 class Fft2(LinOp):
@@ -206,8 +206,8 @@ class Fft2(LinOp):
     def apply(self, x):
         return th.fft.fft2(x, norm="ortho")
 
-    def applyT(self, x):
-        return th.fft.ifft2(x, norm="ortho")
+    def applyT(self, y):
+        return th.fft.ifft2(y, norm="ortho")
 
 
 class Ifft2(LinOp):
@@ -218,8 +218,8 @@ class Ifft2(LinOp):
     def apply(self, x):
         return th.fft.ifft2(x, norm="ortho")
 
-    def applyT(self, x):
-        return th.fft.fft2(x, norm="ortho")
+    def applyT(self, y):
+        return th.fft.fft2(y, norm="ortho")
 
 
 class Roll2(LinOp):
@@ -256,12 +256,12 @@ class Roll2(LinOp):
             (self.ind3 + self.shifts[None, :, 1, None, None]) % w,
         ]
 
-    def applyT(self, x):
-        return x[
+    def applyT(self, y):
+        return y[
             self.ind0,
             self.ind1,
-            (self.ind2 - self.shifts[None, :, 0, None, None]) % x.shape[2],
-            (self.ind3 - self.shifts[None, :, 1, None, None]) % x.shape[3],
+            (self.ind2 - self.shifts[None, :, 0, None, None]) % y.shape[2],
+            (self.ind3 - self.shifts[None, :, 1, None, None]) % y.shape[3],
         ].sum(1, keepdim=True)
 
 
@@ -347,8 +347,8 @@ class Crop2(LinOp):
     def apply(self, x):
         return x[:, :, self.istart : self.iend, self.jstart : self.jend]
 
-    def applyT(self, x):
-        return th.nn.functional.pad(x, self.pads, mode="constant")
+    def applyT(self, y):
+        return th.nn.functional.pad(y, self.pads, mode="constant")
 
 
 class Roll2_PadZero(LinOp):
@@ -372,19 +372,19 @@ class Roll2_PadZero(LinOp):
             x[0 : self.v_shifts, :] = 0
         return x
 
-    def applyT(self, x):
-        x = th.roll(x, -self.h_shifts, dims=1)
+    def applyT(self, y):
+        y = th.roll(y, -self.h_shifts, dims=1)
         if -self.h_shifts < 0:
-            x[:, -self.h_shifts :] = 0
+            y[:, -self.h_shifts :] = 0
         elif -self.h_shifts > 0:
-            x[:, 0 : -self.h_shifts] = 0
+            y[:, 0 : -self.h_shifts] = 0
 
-        x = th.roll(x, -self.v_shifts, dims=0)
+        y = th.roll(y, -self.v_shifts, dims=0)
         if -self.v_shifts < 0:
-            x[-self.v_shifts :, :] = 0
+            y[-self.v_shifts :, :] = 0
         elif -self.v_shifts > 0:
-            x[0 : -self.v_shifts, :] = 0
-        return x
+            y[0 : -self.v_shifts, :] = 0
+        return y
 
 
 # Dimensionless
@@ -402,10 +402,10 @@ class Stack(LinOp):
 
     # TODO this is not generic yet... probably the best implementation is just
     # with using lists..
-    def applyT(self, x):
-        res = self.linops[0].applyT(x[:, 0:1, :, :])
+    def applyT(self, y):
+        res = self.linops[0].applyT(y[:, 0:1, :, :])
         for idx, linop in enumerate(self.linops[1:], start=1):
-            res += linop.applyT(x[:, idx : idx + 1, :, :])
+            res += linop.applyT(y[:, idx : idx + 1, :, :])
         return res
 
 
@@ -436,8 +436,8 @@ class SumReduce(LinOp):
         return x.sum(dim=self.dim, keepdim=True)
 
     # TODO this is not generic yet wrt dimension
-    def applyT(self, x):
-        return x.expand(x.shape[0], self.size, *x.shape[2:])
+    def applyT(self, y):
+        return y.expand(y.shape[0], self.size, *y.shape[2:])
 
 
 class Grad(LinOp):

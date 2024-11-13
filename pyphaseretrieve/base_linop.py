@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import torch as th
 
 
 ## Base class
@@ -8,11 +9,11 @@ class LinOp:
         self.out_shape: tuple
 
     @abstractmethod
-    def apply(self, x):
+    def apply(self, x: th.Tensor) -> th.Tensor:
         pass
 
     @abstractmethod
-    def applyT(self, x):
+    def applyT(self, y: th.Tensor) -> th.Tensor:
         pass
 
     def __add__(self, other):
@@ -63,11 +64,10 @@ class LinOp:
         else:
             return ScalarMul(self, other)
 
-    def __matmul__(self, other):
+    def __matmul__[T: (LinOp, th.Tensor)](self, other: T) -> T:
         if isinstance(other, LinOp):
             return Composition(self, other)
-        else:
-            return self.apply(other)
+        return self.apply(other)
 
     @property
     def T(self):
@@ -87,8 +87,8 @@ class Composition(LinOp):
     def apply(self, x):
         return self.LinOp1.apply(self.LinOp2.apply(x))
 
-    def applyT(self, x):
-        return self.LinOp2.applyT(self.LinOp1.applyT(x))
+    def applyT(self, y):
+        return self.LinOp2.applyT(self.LinOp1.applyT(y))
 
 
 class Sum(LinOp):
@@ -107,8 +107,8 @@ class Sum(LinOp):
     def apply(self, x):
         return self.LinOp1.apply(x) + self.LinOp2.apply(x)
 
-    def applyT(self, x):
-        return self.LinOp2.applyT(x) + self.LinOp1.applyT(x)
+    def applyT(self, y):
+        return self.LinOp2.applyT(y) + self.LinOp1.applyT(y)
 
 
 class Diff(LinOp):
@@ -127,8 +127,8 @@ class Diff(LinOp):
     def apply(self, x):
         return self.LinOp1.apply(x) - self.LinOp2.apply(x)
 
-    def applyT(self, x):
-        return self.LinOp1.applyT(x) - self.LinOp2.applyT(x)
+    def applyT(self, y):
+        return self.LinOp1.applyT(y) - self.LinOp2.applyT(y)
 
 
 class ScalarMul(LinOp):
@@ -141,8 +141,8 @@ class ScalarMul(LinOp):
     def apply(self, x):
         return self.LinOp.apply(x) * self.scalar
 
-    def applyT(self, x):
-        return self.LinOp.applyT(x) * self.scalar
+    def applyT(self, y):
+        return self.LinOp.applyT(y) * self.scalar
 
 
 class Transpose(LinOp):
@@ -154,5 +154,5 @@ class Transpose(LinOp):
     def apply(self, x):
         return self.LinOpT.applyT(x)
 
-    def applyT(self, x):
-        return self.LinOpT.apply(x)
+    def applyT(self, y):
+        return self.LinOpT.apply(y)
