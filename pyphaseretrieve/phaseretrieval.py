@@ -133,9 +133,6 @@ def FPM(
     # x0 *= (th.mean(y[0, 0]) / model.forward(x0)[0, 0].mean()).sqrt()
 
     def nabla(x: th.Tensor):
-        plt.figure()
-        plt.imshow(th.angle(x)[0, 0].cpu().numpy())
-        plt.show()
         if loss == "amplitude":
             print(((model.forward(x).sqrt() - y.sqrt()) ** 2).sum())
             # This was tested against autograd, seems to be correct
@@ -205,9 +202,9 @@ def PPR(
     x0 *= (th.mean(y[0, 0]) / model.forward(x0)[0, 0].mean()).sqrt()
 
     def solve(J, x):
+        nonlocal alpha
+        alpha /= 1.2
         if reg == "tv":
-            nonlocal alpha
-            alpha /= 2
             b = algos.power_iteration(J.T @ J, x, n_iter=10)
             opnormJTJ = (b * ((J.T @ J) @ b)).real.sum() / (b * b).real.sum()
             opnormD = np.sqrt(8)
@@ -237,14 +234,14 @@ def PPR(
                 nabla_h,
                 tau,
                 sigma,
-                x,
-                pl.Grad() @ x,
+                th.zeros_like(x),
+                th.zeros_like(pl.Grad() @ x),
                 n_iter=inner_iter,
             )
         else:
             return algos.conjugate_gradient(
                 J.T @ J + alpha * pl.Id(),
-                J.T @ (y - model.forward(x)),
+                J.T @ (y - model.forward(x)) - alpha * x,
                 th.zeros_like(x),
                 n_iter=inner_iter,
             )
