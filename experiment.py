@@ -97,26 +97,27 @@ experiments = {
     },
     "DF-PPR-3": {
         "patterns": [0, 1, 2, 6, 7, 8],
-        "n_iter": 4,
+        "n_iter": 8,
         "linear_n_iter": 100,
     },
     "DF-PPR-2": {
         "patterns": [0, 1, 2, 9, 10],
-        "n_iter": 4,
+        "n_iter": 8,
         "linear_n_iter": 100,
     },
 }
 
 output_root = Path(os.environ["EXPERIMENTS_ROOT"]) / "phaseretrieval" / "experiments"
-# for reg, weight in zip(["tv", "l2"], [2e5, 1e5]):
-#     for name, params in experiments.items():
-#         our_images = images[:, params["patterns"]]
-#         our_indices = [indices[pattern] for pattern in params["patterns"]]
-#         model = pp.MultiplexedFourierPtychography(microscope, our_indices, shape)
-#         x_est = pp.PPR(
-#             our_images, model, shape, params["n_iter"], params["linear_n_iter"], reg=reg
-#         )
-#         utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
+for reg, weight in zip(["tv", "l2"], [1e4, 1e5]):
+    for name, params in experiments.items():
+        our_images = images[:, params["patterns"]]
+        our_indices = [indices[pattern] for pattern in params["patterns"]]
+        model = pp.MultiplexedFourierPtychography(microscope, our_indices, shape)
+        x_est = pp.PPR(
+            our_images, model, shape, params["n_iter"], params["linear_n_iter"], alpha=weight, reg=reg
+        )
+        utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
+    exit(0)
 
 
 # DPC experiments
@@ -127,8 +128,6 @@ dpc_indices = [indices[pattern] for pattern in dpc_patterns]
 model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
 x_est = pp.DPC(dpc_images, model, shape, alpha)
 utils.dump_experiments(x_est, output_root / "DPC", crop)
-exit(0)
-
 
 # FPM experiments; requires to load the FPM data. For some reason, the x dir
 # seems to be flipped in comparison to the prev experiments.. ?
