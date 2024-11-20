@@ -2,9 +2,10 @@ import numpy as np
 import torch as th
 import imageio.v3 as imageio
 import os
+from pathlib import Path
 
 
-def dump_experiments(x, path, crop):
+def dump_experiments(x: th.Tensor, path: Path, crop: int):
     lineplot_j = 196
     lineplot_istart = 115
     lineplot_iend = 128
@@ -30,7 +31,17 @@ def dump_experiments(x, path, crop):
     imageio.imwrite(path / "x_est.png", x)
 
 
+def snr(x, y):
+    return 10 * th.log10((x ** 2).sum() / ((x - y) ** 2).sum())
+
+
+def rmse(x, y):
+    return ((x - y) ** 2).mean().sqrt()
+
+
 def dump_simulation(x, ref, path):
+    print('snr', snr(th.angle(x), th.angle(ref)))
+    print('rmse', rmse(th.angle(x), th.angle(ref)))
     ref_ft = th.angle(th.fft.fft2(ref))
     x_ft = th.angle(th.fft.fft2(x))
     ft_error = th.fft.fftshift(th.abs(ref_ft - x_ft)).clamp_max(1)
