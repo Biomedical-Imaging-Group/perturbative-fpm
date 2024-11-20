@@ -108,17 +108,16 @@ experiments = {
 }
 
 output_root = Path(os.environ["EXPERIMENTS_ROOT"]) / "phaseretrieval" / "experiments"
-for reg, weight in zip(["tv", "l2"], [1e4, 1e5]):
+for reg, weight in zip(["tv", "l2", 'none'], [1.5e4, 1e5, 0]):
     for name, params in experiments.items():
         our_images = images[:, params["patterns"]]
         our_indices = [indices[pattern] for pattern in params["patterns"]]
         model = pp.MultiplexedFourierPtychography(microscope, our_indices, shape)
-        x_est = pp.PPR(
+        x_est = pp.PPR_PGD(
             our_images, model, shape, params["n_iter"], params["linear_n_iter"], alpha=weight, reg=reg
         )
         utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
     exit(0)
-
 
 # DPC experiments
 alpha = 5e0

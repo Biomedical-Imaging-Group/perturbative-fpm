@@ -239,6 +239,8 @@ def PPR(
                 n_iter=inner_iter,
             )
         else:
+            if reg == 'none':
+                alpha = 0
             return algos.conjugate_gradient(
                 J.T @ J + alpha * pl.Id(),
                 J.T @ (y - model.forward(x)) - alpha * x,
@@ -247,3 +249,66 @@ def PPR(
             )
 
     return algos.irgn(jacobian=model.jacobian, x0=x0, n_iter=n_iter, solve=solve)
+
+
+def PPR_PGD(
+    y: th.Tensor,
+    model: MultiplexedFourierPtychography,
+    shape: tuple[int, int],
+    n_iter: int = 4,
+    inner_iter: int = 100,
+    alpha: float = 1e5,
+    reg="l2",
+) -> th.Tensor:
+    dtype = th.complex64 if y.dtype is th.float32 else th.complex128
+    x0 = th.ones((1, 1, *shape), dtype=dtype, device=y.device)
+    x0 *= (th.mean(y[0, 0]) / model.forward(x0)[0, 0].mean()).sqrt()
+
+    def solve(J, x):
+        nonlocal alpha
+        if reg == "tv":
+            b = algos.power_iteration(J.T @ J, x, n_iter=10)
+            opnormJTJ = (b * ((J.T @ J) @ b)).real.sum() / (b * b).real.sum()
+            opnormD = np.sqrt(8)
+            sigma = th.sqrt(opnormJTJ) / opnormD
+            sigmaLsqlH = sigma * opnormD**2 + opnormJTJ
+            tau = 1 / sigmaLsqlH
+
+            def print_energy(x_, *_):
+                print(((model.forward(x) - y + J @ (x_ - x)) ** 2).sum() + alpha * ((pl.Grad() @ x_).abs() ** 2).sum(1).sqrt().sum())
+
+            def nabla_h(x_):
+                return J.T @ (J @ (x_ - x) + model.forward(x) - y)
+
+            def prox_g(x):
+                return x
+
+            def prox_fs(y):
+                return y / th.maximum(
+                    (y.abs() ** 2).sum(1, keepdims=True).sqrt() / alpha,
+                    th.ones(y.shape, device=y.device),
+                )
+
+            return algos.condat_vu(
+                pl.Grad(),
+                prox_g,
+                prox_fs,
+                nabla_h,
+                tau,
+                sigma,
+                x,
+                pl.Grad() @ x,
+                n_iter=inner_iter,
+                callback=print_energy,
+            )
+        else:
+            if reg == 'none':
+                alpha = 0
+            return algos.conjugate_gradient(
+                J.T @ J + alpha * pl.Id(),
+                J.T @ (J @ x + y - model.forward(x)),
+                x,
+                n_iter=inner_iter,
+            )
+
+    return algos.pgn(jacobian=model.jacobian, x0=x0, n_iter=n_iter, solve=solve)

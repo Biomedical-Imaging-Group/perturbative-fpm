@@ -66,6 +66,18 @@ def conjugate_gradient(
     return x
 
 
+def pgn(jacobian, x0, n_iter, solve, callback=lambda x: None):
+    x = x0.clone()
+
+    for _ in range(n_iter):
+        # This basically doesnt actually do anything anymore since everything
+        # is outsourced to "solve" (which might be a misnomer)
+        x = solve(jacobian(x), x)
+        callback(x)
+
+    return x
+
+
 def irgn(
     jacobian,
     x0,

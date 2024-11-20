@@ -115,30 +115,31 @@ bf_ppr_indices = [
 ]
 model = pp.MultiplexedFourierPtychography(microscope, bf_ppr_indices, shape)
 y = model.forward(image)
-x_est = pp.PPR(y, model, shape, alpha=0.1, n_iter=4, inner_iter=100)
+x_est = pp.PPR(y, model, shape, alpha=0., n_iter=4, inner_iter=100)
 utils.dump_simulation(x_est, image, output_root / "BF-PPR")
 
 # DF-PPR-2
-radii_ranges = [th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1.0, 2)]]
+radii_ranges = [th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1.0, 1.5), (1.5, 2)]]
 df_ppr_indices = led_indices_by_radii(led_positions, radii_ranges=radii_ranges)
 df_ppr_indices = [th.Tensor(ind).to(th.int64) for ind in df_ppr_indices]
 ppr_indices = bf_ppr_indices + df_ppr_indices
 model = pp.MultiplexedFourierPtychography(microscope, ppr_indices, shape)
 y = model.forward(image)
-x_est = pp.PPR(y, model, shape, alpha=0.1, n_iter=30, inner_iter=100)
+x_est = pp.PPR(y, model, shape, alpha=0, n_iter=10, inner_iter=200)
 utils.dump_simulation(x_est, image, output_root / "DF-PPR-2")
 
 # DF-PPR-3
 radii_ranges = [
-    th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1.0, 1.3), (1.3, 1.7), (1.7, 2.0)]
+    th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1.0, 1.2), (1.2, 1.3), (1.3, 1.4), (1.4, 1.5), (1.5, 1.6), (1.6, 1.7), (1.7, 1.8), (1.8, 1.9), (1.9, 2.0)]
 ]
 df_ppr_indices = led_indices_by_radii(led_positions, radii_ranges=radii_ranges)
 df_ppr_indices = [th.Tensor(ind).to(th.int64) for ind in df_ppr_indices]
 ppr_indices = bf_ppr_indices + df_ppr_indices
 model = pp.MultiplexedFourierPtychography(microscope, ppr_indices, shape)
 y = model.forward(image)
-x_est = pp.PPR(y, model, shape, alpha=0.1, n_iter=30, inner_iter=100)
+x_est = pp.PPR(y, model, shape, alpha=0, n_iter=10, inner_iter=200)
 utils.dump_simulation(x_est, image, output_root / "DF-PPR-3")
+exit(0)
 
 # FPM
 fpm_radius = 2.5 * na
