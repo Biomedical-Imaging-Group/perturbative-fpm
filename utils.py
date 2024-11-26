@@ -32,7 +32,7 @@ def dump_experiments(x: th.Tensor, path: Path, crop: int):
 
 
 def snr(x, y):
-    return 10 * th.log10((x ** 2).sum() / ((x - y) ** 2).sum())
+    return 10 * th.log10((x**2).sum() / ((x - y) ** 2).sum())
 
 
 def rmse(x, y):
@@ -40,8 +40,8 @@ def rmse(x, y):
 
 
 def dump_simulation(x, ref, path):
-    print('snr', snr(th.angle(x), th.angle(ref)))
-    print('rmse', rmse(th.angle(x), th.angle(ref)))
+    print("snr", snr(th.angle(x), th.angle(ref)))
+    print("rmse", rmse(th.angle(x), th.angle(ref)))
     ref_ft = th.angle(th.fft.fft2(ref))
     x_ft = th.angle(th.fft.fft2(x))
     ft_error = th.fft.fftshift(th.abs(ref_ft - x_ft)).clamp_max(1)

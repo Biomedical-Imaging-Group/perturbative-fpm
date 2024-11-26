@@ -134,7 +134,6 @@ def FPM(
 
     def nabla(x: th.Tensor):
         if loss == "amplitude":
-            print(((model.forward(x).sqrt() - y.sqrt()) ** 2).sum())
             # This was tested against autograd, seems to be correct
             field = th.cat(tuple(forw @ x for forw in model.forwards), dim=1)
             ex = field - field / (field.abs() + epsilon) * y.sqrt()
@@ -274,9 +273,6 @@ def PPR_PGD(
             sigmaLsqlH = sigma * opnormD**2 + opnormJTJ
             tau = 1 / sigmaLsqlH
 
-            def print_energy(x_, *_):
-                print(((model.forward(x) - y + J @ (x_ - x)) ** 2).sum() + alpha * ((pl.Grad() @ x_).abs() ** 2).sum(1).sqrt().sum())
-
             def nabla_h(x_):
                 return J.T @ (J @ (x_ - x) + model.forward(x) - y)
 
@@ -299,7 +295,6 @@ def PPR_PGD(
                 x,
                 pl.Grad() @ x,
                 n_iter=inner_iter,
-                callback=print_energy,
             )
         else:
             if reg == 'none':
