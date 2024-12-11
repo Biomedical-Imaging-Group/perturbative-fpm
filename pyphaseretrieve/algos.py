@@ -7,7 +7,7 @@ def gradient_descent(
     tau: float,
     x0: th.Tensor,
     n_iter: int = 100,
-    callback=lambda x: None,
+    callback=lambda _: None,
 ):
     x = x0.clone()
     for _ in range(n_iter):
@@ -21,7 +21,7 @@ def gauss_newton(
     x0,
     n_iter,
     solve,
-    callback=lambda x: None,
+    callback=lambda _: None,
 ):
     x = x0.clone()
     dx = th.zeros_like(x)
@@ -43,7 +43,7 @@ def conjugate_gradient(
     n_iter: int = 100,
     tol: float = 1e-9,
     dim: tuple[int, ...] = (1, 2, 3),
-    callback=lambda x: None,
+    callback=lambda _: None,
 ):
     def inner(a, b):
         return (a.conj() * b).sum(dim=dim).real
@@ -66,7 +66,7 @@ def conjugate_gradient(
     return x
 
 
-def pgn(jacobian, x0, n_iter, solve, callback=lambda x: None):
+def pgn(jacobian, x0, n_iter, solve, callback=lambda _: None):
     x = x0.clone()
 
     for _ in range(n_iter):
@@ -83,7 +83,7 @@ def irgn(
     x0,
     n_iter,
     solve,
-    callback=lambda x: None,
+    callback=lambda _: None,
 ):
     x = x0.clone()
     dx = th.zeros_like(x)
@@ -107,7 +107,7 @@ def condat_vu(
     sigma,
     x_0,
     y_0,
-    callback=lambda x, y, i: None,
+    callback=lambda *_: None,
     n_iter=100,
 ):
     x = x_0.clone()
