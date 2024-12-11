@@ -104,8 +104,8 @@ dpc_indices = [
 ]
 model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
 y = model.forward(image)
-x_est = pp.DPC(y, model, shape, alpha=0.1)
-utils.dump_simulation(th.exp(1j * x_est), image, output_root / "DPC")
+dpc = th.exp(1j * pp.DPC(y, model, shape, alpha=3))
+utils.dump_simulation(dpc, image, output_root / "DPC")
 
 # BF-PPR
 angle_ranges = th.Tensor([[0.0, np.pi], [-np.pi / 2, np.pi / 1.9], [-np.pi, np.pi]])
@@ -116,7 +116,7 @@ bf_ppr_indices = [
 ]
 model = pp.MultiplexedFourierPtychography(microscope, bf_ppr_indices, shape)
 y = model.forward(image)
-x_est = pp.PPR(y, model, shape, alpha=0.0, n_iter=20, inner_iter=200)
+x_est = pp.PPR_PGD(y, model, shape, alpha=.1, n_iter=1, inner_iter=500)
 utils.dump_simulation(x_est, image, output_root / "BF-PPR")
 
 # DF-PPR-2
@@ -126,7 +126,7 @@ df_ppr_indices = [th.Tensor(ind).to(th.int64) for ind in df_ppr_indices]
 ppr_indices_two = bf_ppr_indices + df_ppr_indices
 model = pp.MultiplexedFourierPtychography(microscope, ppr_indices_two, shape)
 y = model.forward(image)
-x_est = pp.PPR(y, model, shape, alpha=0, n_iter=20, inner_iter=200)
+x_est = pp.PPR_PGD(y, model, shape, alpha=0.1, n_iter=10, inner_iter=100)
 utils.dump_simulation(x_est, image, output_root / "DF-PPR-two")
 
 # DF-PPR-3
@@ -150,7 +150,7 @@ df_ppr_indices = [th.Tensor(ind).to(th.int64) for ind in df_ppr_indices if len(i
 ppr_indices_many = bf_ppr_indices + df_ppr_indices
 model = pp.MultiplexedFourierPtychography(microscope, ppr_indices_many, shape)
 y = model.forward(image)
-x_est = pp.PPR(y, model, shape, alpha=0, n_iter=20, inner_iter=200)
+x_est = pp.PPR_PGD(y, model, shape, alpha=0.1, n_iter=10, inner_iter=100)
 utils.dump_simulation(x_est, image, output_root / "DF-PPR-many")
 
 # FPM
