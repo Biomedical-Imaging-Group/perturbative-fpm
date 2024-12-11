@@ -19,12 +19,12 @@ def draw_patterns(indices, name):
         ax.axis("equal")
         ax.set_axis_off()
         ax.add_patch(circle)
-        ax.scatter(
-            *positions[:, :2].T.cpu().numpy() / 1000,
-            facecolors="none",
-            edgecolors="w",
-            s=100,
-        )
+        # ax.scatter(
+        #     *positions[:, :2].T.cpu().numpy() / 1000,
+        #     facecolors="none",
+        #     edgecolors="darkgray",
+        #     s=100,
+        # )
         for idx in pat_indices:
             ax.scatter(
                 *positions[idx, :2].cpu().numpy() / 1000,
@@ -54,5 +54,4 @@ for name, indices in zip(
         simulation.ppr_indices_many,
     ],
 ):
-    print(indices)
     draw_patterns(indices, name)
