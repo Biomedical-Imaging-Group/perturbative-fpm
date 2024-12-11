@@ -40,11 +40,11 @@ def rmse(x, y):
 
 
 def dump_simulation(x, ref, path):
-    print("snr", snr(th.angle(x), th.angle(ref)))
-    print("rmse", rmse(th.angle(x), th.angle(ref)))
-    ref_ft = th.angle(th.fft.fft2(ref))
-    x_ft = th.angle(th.fft.fft2(x))
-    ft_error = th.fft.fftshift(th.abs(ref_ft - x_ft)).clamp_max(1)
+    metrics = np.array([snr(th.angle(x), th.angle(ref)).cpu().numpy(), rmse(th.angle(x), th.angle(ref)).cpu().numpy()])[None]
+    np.savetxt(path / "metrics.csv", metrics, delimiter=",", fmt="%.2f")
+    ref_ft = th.fft.fft2(th.angle(ref))
+    x_ft = th.fft.fft2(th.angle(x))
+    ft_error = th.fft.fftshift(th.abs(ref_ft - x_ft) / th.abs(ref_ft)).clamp_max(1)
 
     if not os.path.exists(path):
         os.makedirs(path)
