@@ -1,5 +1,4 @@
 import torch as th
-import matplotlib.pyplot as plt
 import numpy as np
 import pyphaseretrieve.linop as pl
 import pyphaseretrieve.algos as algos
@@ -45,7 +44,7 @@ class Microscope:
 
         self.led_positions = led_positions
         sin_theta = led_positions[:, 0:2] / th.sqrt(
-            (led_positions**2).sum(-1, keepdims=True)
+            (led_positions**2).sum(-1, keepdim=True)
         )
         self.led_na = (sin_theta**2).sum(-1).sqrt()
         self.shifts = sin_theta / self.lamda / self.fourier_res
@@ -263,18 +262,18 @@ def PPR_PGD(
     x0 = th.ones((1, 1, *shape), dtype=dtype, device=y.device)
     x0 *= (th.mean(y[0, 0]) / model.forward(x0)[0, 0].mean()).sqrt()
 
-    def solve(J, x):
+    def solve(J, x_k):
         nonlocal alpha
         if reg == "tv":
-            b = algos.power_iteration(J.T @ J, x, n_iter=10)
+            b = algos.power_iteration(J.T @ J, x_k, n_iter=10)
             opnormJTJ = (b * ((J.T @ J) @ b)).real.sum() / (b * b).real.sum()
             opnormD = np.sqrt(8)
             sigma = th.sqrt(opnormJTJ) / opnormD
             sigmaLsqlH = sigma * opnormD**2 + opnormJTJ
             tau = 1 / sigmaLsqlH
 
-            def nabla_h(x_):
-                return J.T @ (J @ (x_ - x) + model.forward(x) - y)
+            def nabla_h(x):
+                return J.T @ (J @ (x - x_k) + model.forward(x_k) - y)
 
             def prox_g(x):
                 return x
@@ -292,8 +291,8 @@ def PPR_PGD(
                 nabla_h,
                 tau,
                 sigma,
-                x,
-                pl.Grad() @ x,
+                x_k,
+                pl.Grad() @ x_k,
                 n_iter=inner_iter,
             )
         else:
@@ -301,8 +300,8 @@ def PPR_PGD(
                 alpha = 0
             return algos.conjugate_gradient(
                 J.T @ J + alpha * pl.Id(),
-                J.T @ (J @ x + y - model.forward(x)),
-                x,
+                J.T @ (J @ x_k + y - model.forward(x_k)),
+                x_k,
                 n_iter=inner_iter,
             )
 
