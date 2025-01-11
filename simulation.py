@@ -63,9 +63,9 @@ else:
 output_root = Path(os.environ["EXPERIMENTS_ROOT"]) / "phaseretrieval" / "simulation"
 
 # in um
-led_pitch = 4_000
+led_pitch = 2_000
 led_z = 67_500
-n_leds = 15
+n_leds = 29
 led_positions = synthetic_led_positions(n_leds=n_leds, pitch=led_pitch, z=led_z)
 
 camera_size = 100
@@ -79,13 +79,12 @@ microscope = Microscope(
 
 size = 220
 shape = (220, 220)
-center = (50, 60)
 img = skimage.data.camera()
-img = (img - np.min(img)) / (np.max(img) - np.min(img)) - 0.5
+img = ((img - np.min(img)) / (np.max(img) - np.min(img)) - 0.5) * 1
 img = np.exp(1j * img)
 
-v_center = img.shape[0] // 2 - 60
-h_center = img.shape[1] // 2 + 50
+v_center = 200
+h_center = 300
 img = img[
     v_center - size // 2 : v_center + size // 2,
     h_center - size // 2 : h_center + size // 2,
@@ -104,60 +103,103 @@ dpc_indices = [
 ]
 model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
 y = model.forward(image)
-dpc = th.exp(1j * pp.DPC(y, model, shape, alpha=3))
+dpc = th.exp(1j * pp.DPC(y, model, shape, alpha=0.1))
+utils.draw_patterns(led_positions, na, dpc_indices, output_root / "DPC")
 utils.dump_simulation(dpc, image, output_root / "DPC")
 
-# BF-PPR
+# BF-pFPM (prime)
+bf_pfpmprime_indices = dpc_indices
+
+# BF-pFPM
 angle_ranges = th.Tensor([[0.0, np.pi], [-np.pi / 2, np.pi / 1.9], [-np.pi, np.pi]])
 angle_indices = led_indices_by_angles(led_positions, angle_ranges=angle_ranges)
-bf_ppr_indices = [
+bf_pfpm_indices = [
     th.Tensor(list(set(angle_ind) & set(bf_indices))).to(th.int64)
     for angle_ind in angle_indices
 ]
-model = pp.MultiplexedFourierPtychography(microscope, bf_ppr_indices, shape)
-y = model.forward(image)
-x_est = pp.PPR_PGD(y, model, shape, alpha=.1, n_iter=1, inner_iter=500)
-utils.dump_simulation(x_est, image, output_root / "BF-PPR")
 
-# DF-PPR-2
+# DF-pFPM
 radii_ranges = [th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1.0, 1.5), (1.5, 2)]]
-df_ppr_indices = led_indices_by_radii(led_positions, radii_ranges=radii_ranges)
-df_ppr_indices = [th.Tensor(ind).to(th.int64) for ind in df_ppr_indices]
-ppr_indices_two = bf_ppr_indices + df_ppr_indices
-model = pp.MultiplexedFourierPtychography(microscope, ppr_indices_two, shape)
-y = model.forward(image)
-x_est = pp.PPR_PGD(y, model, shape, alpha=0.1, n_iter=10, inner_iter=100)
-utils.dump_simulation(x_est, image, output_root / "DF-PPR-two")
+df_indices = led_indices_by_radii(led_positions, radii_ranges=radii_ranges)
+df_indices = [th.Tensor(ind).to(th.int64) for ind in df_indices]
+df_pfpm_indices = bf_pfpm_indices + df_indices
 
-# DF-PPR-3
+# DF-pFPM (prime)
 radii_ranges = [
-    th.Tensor([na * f1, na * f2])
-    for (f1, f2) in [
-        (1.0, 1.1),
-        (1.1, 1.2),
-        (1.2, 1.3),
-        (1.3, 1.4),
-        (1.4, 1.5),
-        (1.5, 1.6),
-        (1.6, 1.7),
-        (1.7, 1.8),
-        (1.8, 1.9),
-        (1.9, 2.0),
-    ]
+    th.Tensor([na * f1, na * f2]) for (f1, f2) in [(1.0, 1.3), (1.3, 1.6), (1.6, 2.0)]
 ]
-df_ppr_indices = led_indices_by_radii(led_positions, radii_ranges=radii_ranges)
-df_ppr_indices = [th.Tensor(ind).to(th.int64) for ind in df_ppr_indices if len(ind) > 0]
-ppr_indices_many = bf_ppr_indices + df_ppr_indices
-model = pp.MultiplexedFourierPtychography(microscope, ppr_indices_many, shape)
-y = model.forward(image)
-x_est = pp.PPR_PGD(y, model, shape, alpha=0.1, n_iter=10, inner_iter=100)
-utils.dump_simulation(x_est, image, output_root / "DF-PPR-many")
+df_indices = led_indices_by_radii(led_positions, radii_ranges=radii_ranges)
+df_indices = [th.Tensor(ind).to(th.int64) for ind in df_indices if len(ind) > 0]
+df_pfpmprime_indices = bf_pfpm_indices + df_indices
+
+
+n_iter = 8
+inner_iter = 100
+
+# for indices, name in zip(
+#     [bf_pfpmprime_indices, bf_pfpm_indices, df_pfpm_indices, df_pfpmprime_indices],
+#     ["BF-pFPMprime", "BF-pFPM", "DF-pFPM", "DF-pFPMprime"],
+# ):
+#     model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
+#     y = model.forward(image)
+#     x_est = pp.PPR(y, model, shape, alpha=0.1, n_iter=n_iter, inner_iter=inner_iter)
+#     utils.draw_patterns(led_positions, na, indices, output_root / name)
+#     utils.dump_simulation(x_est, image, output_root / name)
+
 
 # FPM
 fpm_radius = 2.5 * na
 fpm_indices = led_indices_by_radii(led_positions, [th.Tensor([0, fpm_radius])])
 fpm_indices = [th.Tensor([index]).to(th.int64) for index in fpm_indices[0]]
-model = pp.MultiplexedFourierPtychography(microscope, fpm_indices, shape)
-y = model.forward(image)
-x_est = pp.FPM(y, model, shape, n_iter=100, tau=4e-2, epsilon=1e-6)
-utils.dump_simulation(x_est, image, output_root / "FPM")
+# model = pp.MultiplexedFourierPtychography(microscope, fpm_indices, shape)
+# y = model.forward(image)
+# x_est = pp.FPM(y, model, shape, n_iter=100, tau=4e-2, epsilon=1e-6)
+# utils.dump_simulation(x_est, image, output_root / "FPM")
+
+
+def cone_indices(cone, num_cones):
+    radius_range = [th.Tensor([1, 2.0]) * na]
+    angle_range = [
+        -np.pi + cone * 2 * np.pi / num_cones,
+        -np.pi + (cone + 1) * 2 * np.pi / num_cones,
+    ]
+    angle_ranges = th.Tensor([angle_range])
+    angle_indices = led_indices_by_angles(led_positions, angle_ranges=angle_ranges)[0]
+    df_indices = led_indices_by_radii(led_positions, radius_range)[0]
+    return th.Tensor(list(set(angle_indices) & set(df_indices))).to(th.int64)
+
+
+# Comparison to mFPM, dark-field cone partitioning from that one learned recovery paper
+rng = np.random.default_rng()
+for n_patterns in [5, 6]:
+    experiment_path = output_root / "pattern-comparison" / str(n_patterns)
+    # mFPM with (number of leds) / (number of patterns) turned on per pattern
+    # note that this does not guarantee that we turn on all leds as we dont check
+    # duplicates between patterns. but no one says that turning all on yields a benefit
+    all_indices = led_indices_by_radii(led_positions, [th.Tensor([0, 2 * na])])[0]
+    mfpm_indices = []
+    for _ in range(n_patterns):
+        mfpm_indices.append(
+            rng.choice(all_indices, size=n_leds**2 // n_patterns, replace=False)
+        )
+
+    # cone-type patterns, dividing the dark field patterns into n_patterns - 2 cones
+    # -2 because we already use two bf patterns
+    cone_base_indices = bf_pfpm_indices.copy()
+    num_cones = n_patterns - 3
+    for cone in range(num_cones):
+        cone_base_indices.append(cone_indices(cone, num_cones))
+
+    # proposed pattern selection, we already have these indices
+    our_indices = df_pfpm_indices if n_patterns == 5 else df_pfpmprime_indices
+
+    # for ind, name in zip(
+    #     [mfpm_indices, cone_base_indices, our_indices], ["mFPM", "cone", "pFPM"]
+    # ):
+    #     model = pp.MultiplexedFourierPtychography(microscope, ind, shape)
+    #     y = model.forward(image)
+    #     x_est = pp.PPR_PGD(
+    #         y, model, shape, alpha=0.1, n_iter=n_iter, inner_iter=inner_iter
+    #     )
+    #     utils.draw_patterns(led_positions, na, ind, experiment_path / name)
+    #     utils.dump_simulation(x_est, image, experiment_path / name)

@@ -68,6 +68,7 @@ output_root = Path(os.environ["EXPERIMENTS_ROOT"]) / "phaseretrieval" / "experim
 # Write central led image to disc for visualizations
 brightfield_image = images[0:1].cpu().numpy()[0, 0]
 brightfield_image = th.from_numpy(sktr.resize(brightfield_image, shape)[None, None])
+dpc_norm = (brightfield_image.mean()*2).sqrt()
 utils.dump_experiments(brightfield_image, output_root / "brightfield", crop)
 
 # Setup of physical microscope
@@ -85,56 +86,53 @@ with open("./led_indices.txt", "r") as f:
 # Microscope is the same for all experiments
 microscope = pp.Microscope(positions, camera_size, lamda, na, magnification, pixel_size)
 
-# "PPR" experiments TODO come up with better name and distinguish them more
-# i.e. this "DPC" here is one iteration of GN with the respecitve (nonlinear)
-# solver
 experiments = {
-    "DPC": {
+    "BF-pFPMprime": {
         "patterns": [1, 2],
-        "n_iter": 1,
+        "n_iter": 4,
         "linear_n_iter": 100,
     },
-    "BF-PPR": {
+    "BF-pFPM": {
         "patterns": [0, 1, 2],
         "n_iter": 4,
         "linear_n_iter": 100,
     },
-    "DF-PPR-3": {
-        "patterns": [0, 1, 2, 6, 7, 8],
+    "DF-pFPM": {
+        "patterns": [0, 1, 2, 9, 10],
         "n_iter": 8,
         "linear_n_iter": 100,
     },
-    "DF-PPR-2": {
-        "patterns": [0, 1, 2, 9, 10],
+    "DF-pFPMprime": {
+        "patterns": [0, 1, 2, 6, 7, 8],
         "n_iter": 8,
         "linear_n_iter": 100,
     },
 }
 
-# for reg, weight in zip(["tv", "l2", "none"], [1.5e4, 9e4, 0]):
-#     for name, params in experiments.items():
-#         our_images = images[:, params["patterns"]]
-#         our_indices = [indices[pattern] for pattern in params["patterns"]]
-#         model = pp.MultiplexedFourierPtychography(microscope, our_indices, shape)
-#         x_est = pp.PPR_PGD(
-#             our_images,
-#             model,
-#             shape,
-#             params["n_iter"],
-#             params["linear_n_iter"],
-#             alpha=weight,
-#             reg=reg,
-#         )
-#         utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
+for reg, weight in zip(["tv", "l2", "none"], [1.5e4, 9e4, 0]):
+    for name, params in experiments.items():
+        our_images = images[:, params["patterns"]]
+        our_indices = [indices[pattern] for pattern in params["patterns"]]
+        model = pp.MultiplexedFourierPtychography(microscope, our_indices, shape)
+        x_est = pp.PPR_PGD(
+            our_images,
+            model,
+            shape,
+            params["n_iter"],
+            params["linear_n_iter"],
+            alpha=weight,
+            reg=reg,
+        )
+        utils.dump_experiments(th.angle(x_est), output_root / reg / name, crop)
 
-# # DPC experiments
-# alpha = 5e0
-# dpc_patterns = [1, 2]
-# dpc_images = images[:, dpc_patterns]
-# dpc_indices = [indices[pattern] for pattern in dpc_patterns]
-# model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
-# x_est = pp.DPC(dpc_images, model, shape, alpha)
-# utils.dump_experiments(x_est, output_root / "DPC", crop)
+# DPC experiments
+alpha = 5e0
+dpc_patterns = [1, 2]
+dpc_images = images[:, dpc_patterns]
+dpc_indices = [indices[pattern] for pattern in dpc_patterns]
+model = pp.MultiplexedFourierPtychography(microscope, dpc_indices, shape)
+x_est = pp.DPC(dpc_images, model, shape, alpha)
+utils.dump_experiments(x_est / dpc_norm, output_root / "DPC", crop)
 
 # FPM experiments; requires to load the FPM data. For some reason, the x dir
 # seems to be flipped in comparison to the prev experiments.. ?
@@ -151,9 +149,15 @@ path = (
 images = imageio.imread(path / "fpm.tif").astype(np.float64)[None]
 images = images[:, :, istart : istart + camera_size, jstart : jstart + camera_size]
 images = th.from_numpy(images).to(dtype).to(device)
-central_led = images[0:1].cpu().numpy()[0, 0]
+central_led = images[0, 0].cpu().numpy()
 central_led = th.from_numpy(sktr.resize(central_led, shape)[None, None])
 utils.dump_experiments(central_led, output_root / "central_led", crop)
+
+# Arbitrary dark-field index
+darkfield_led = images[0, 116].cpu().numpy()
+darkfield_led = th.from_numpy(sktr.resize(darkfield_led, shape)[None, None])
+utils.dump_experiments(darkfield_led, output_root / "darkfield_led", crop)
+
 # FPM indices are just 1...N, leds ordered by NA
 indices = th.arange(images.shape[1])[:, None]
 model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
