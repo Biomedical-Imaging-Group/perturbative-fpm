@@ -8,38 +8,45 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
 
+green = [45, 96, 54]
+green = np.array(green) / 255.0 * 1.6
+bfcolor = [45, 93, 123]
+bfcolor = np.array(bfcolor) / 255.0 * 1.2
+dfcolor = bfcolor * 0.5
+# dfcolor = [46 / 255., 40 / 255., 42 / 255.]
+
+
 def draw_patterns(
     positions: th.Tensor, na: float, indices: list[th.Tensor], root_path: Path
 ):
     for i, pat_indices in enumerate(indices):
         fig, ax = plt.subplots(frameon="false", figsize=(5, 5))
-        fig.patch.set_facecolor("k")
         r = math.sqrt(na**2 * positions[0, 2] ** 2 / (1 - na**2)) / 1000
-        circle = Circle((0, 0), r, facecolor="gray", edgecolor="none", linewidth=None)
-        ax.patch.set_facecolor("k")
+        r_df = (
+            math.sqrt((2 * na) ** 2 * positions[0, 2] ** 2 / (1 - (2 * na) ** 2)) / 1000
+        )
+        circle_df = Circle(
+            (0, 0), r_df, facecolor=dfcolor, edgecolor="none", linewidth=None
+        )
+        circle_bf = Circle(
+            (0, 0), r, facecolor=bfcolor, edgecolor="none", linewidth=None
+        )
         ax.axis("equal")
         ax.set_axis_off()
-        ax.add_patch(circle)
-        ax.scatter(
-            *positions[:, :2].T.cpu().numpy() / 1000,
-            facecolors="none",
-            edgecolors="darkgray",
-            s=100,
-            alpha=0,
-        )
+        ax.add_patch(circle_df)
+        ax.add_patch(circle_bf)
         for idx in pat_indices:
             ax.scatter(
                 *positions[idx, :2].cpu().numpy() / 1000,
-                facecolors="w",
-                edgecolors="w",
-                s=100,
+                c=[green],
+                s=50,
             )
 
         path = root_path / "patterns"
         if not os.path.exists(path):
             os.makedirs(path)
         fig.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
-        fig.savefig(path / f"{i:02d}.pdf")
+        fig.savefig(path / f"{i:02d}.pdf", transparent=True)
         plt.close()
 
 
