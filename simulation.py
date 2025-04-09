@@ -136,25 +136,28 @@ df_pfpmprime_indices = bf_pfpm_indices + df_indices
 n_iter = 8
 inner_iter = 100
 
-# for indices, name in zip(
-#     [bf_pfpmprime_indices, bf_pfpm_indices, df_pfpm_indices, df_pfpmprime_indices],
-#     ["BF-pFPMprime", "BF-pFPM", "DF-pFPM", "DF-pFPMprime"],
-# ):
-#     model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
-#     y = model.forward(image)
-#     x_est = pp.PPR(y, model, shape, alpha=0.1, n_iter=n_iter, inner_iter=inner_iter)
-#     utils.draw_patterns(led_positions, na, indices, output_root / name)
-#     utils.dump_simulation(x_est, image, output_root / name)
+for indices, name in zip(
+    [bf_pfpmprime_indices, bf_pfpm_indices, df_pfpm_indices, df_pfpmprime_indices],
+    ["BF-pFPMprime", "BF-pFPM", "DF-pFPM", "DF-pFPMprime"],
+):
+    model = pp.MultiplexedFourierPtychography(microscope, indices, shape)
+    y = model.forward(image)
+    # Oversight:
+    # Results in the paper were computed with pp.PPR, which slightly decreases
+    # alpha each iteration. Differences are negligible.
+    x_est = pp.PPR_PGD(y, model, shape, alpha=0.1, n_iter=n_iter, inner_iter=inner_iter)
+    utils.draw_patterns(led_positions, na, indices, output_root / name)
+    utils.dump_simulation(x_est, image, output_root / name)
 
 
 # FPM
 fpm_radius = 2.5 * na
 fpm_indices = led_indices_by_radii(led_positions, [th.Tensor([0, fpm_radius])])
 fpm_indices = [th.Tensor([index]).to(th.int64) for index in fpm_indices[0]]
-# model = pp.MultiplexedFourierPtychography(microscope, fpm_indices, shape)
-# y = model.forward(image)
-# x_est = pp.FPM(y, model, shape, n_iter=100, tau=4e-2, epsilon=1e-6)
-# utils.dump_simulation(x_est, image, output_root / "FPM")
+model = pp.MultiplexedFourierPtychography(microscope, fpm_indices, shape)
+y = model.forward(image)
+x_est = pp.FPM(y, model, shape, n_iter=100, tau=1e-2, epsilon=1e-6)
+utils.dump_simulation(x_est, image, output_root / "FPM")
 
 
 def cone_indices(cone, num_cones):
@@ -193,13 +196,13 @@ for n_patterns in [5, 6]:
     # proposed pattern selection, we already have these indices
     our_indices = df_pfpm_indices if n_patterns == 5 else df_pfpmprime_indices
 
-    # for ind, name in zip(
-    #     [mfpm_indices, cone_base_indices, our_indices], ["mFPM", "cone", "pFPM"]
-    # ):
-    #     model = pp.MultiplexedFourierPtychography(microscope, ind, shape)
-    #     y = model.forward(image)
-    #     x_est = pp.PPR_PGD(
-    #         y, model, shape, alpha=0.1, n_iter=n_iter, inner_iter=inner_iter
-    #     )
-    #     utils.draw_patterns(led_positions, na, ind, experiment_path / name)
-    #     utils.dump_simulation(x_est, image, experiment_path / name)
+    for ind, name in zip(
+        [mfpm_indices, cone_base_indices, our_indices], ["mFPM", "cone", "pFPM"]
+    ):
+        model = pp.MultiplexedFourierPtychography(microscope, ind, shape)
+        y = model.forward(image)
+        x_est = pp.PPR_PGD(
+            y, model, shape, alpha=0.1, n_iter=n_iter, inner_iter=inner_iter
+        )
+        utils.draw_patterns(led_positions, na, ind, experiment_path / name)
+        utils.dump_simulation(x_est, image, experiment_path / name)
